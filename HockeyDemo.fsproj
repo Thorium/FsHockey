@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Physics.fs" />
+    <Compile Include="Game.fs" />
+    <Compile Include="Renderer.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+</Project>
