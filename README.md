@@ -44,3 +44,6 @@ Phobos Miners, Titan Orange, Pluto Icemen, Neptune Blue, Saturn Ringers, Jupiter
 ## Credits
 
 By Tuomas Hietanen. Influenced by Wayne Gretzky Hockey (1988) and Solar Hockey (c) 1990-1992 Galifir Developments.
+
+<img width="1191" height="527" alt="image" src="https://github.com/user-attachments/assets/01e121cb-1d32-4087-96b6-ff4b9200188e" />
+
