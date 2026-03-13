@@ -37,9 +37,6 @@ Hold the shoot key longer for a harder shot. A quick tap gives a weaker pass.
 
 Set a team to **HUMAN PLAYER** for keyboard control. Both teams can be human or CPU.
 
-## Teams
-
-Phobos Miners, Titan Orange, Pluto Icemen, Neptune Blue, Saturn Ringers, Jupiter Magnos, Mars Reds, Moon Minerals, Earth Mutants
 
 ## Credits
 
