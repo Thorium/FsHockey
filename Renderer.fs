@@ -123,15 +123,18 @@ let drawRink (g: Graphics) sx sy leftGoalColor rightGoalColor =
 // Wayne Gretzky Hockey 2 inspired pixel art — scaled rectangles.
 // isGoalie: distinct goalie appearance (wider pads, face mask, leg pads)
 
-let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor isActive (stickAnim: int) isGoalie =
+let skinColor = Color.FromArgb(230, 195, 160)
+let gloveColor = Color.FromArgb(60, 60, 60)
+let sockColor = Color.FromArgb(200, 200, 210)
+
+let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor isActive (stickAnim: int) isGoalie (gameTick: int) =
     let px = gameX sx ent.X
     let py = gameY sy ent.Y
-    // Unit size — compact figures so the rink doesn't feel crowded
-    let u = 1.1f * sx
-    let uy = 1.1f * sy
+    // Smaller unit size — more compact figures
+    let u = 0.85f * sx
+    let uy = 0.85f * sy
 
     // ─── Rotation: face direction of DirX/DirY ───
-    // Sprite is drawn "facing up" (head at -Y). Rotate to match direction.
     let angleDeg =
         if ent.DirX <> 0.0 || ent.DirY <> 0.0 then
             float32 (System.Math.Atan2(float ent.DirX, -(float ent.DirY))) * (180.0f / float32 System.Math.PI)
@@ -141,113 +144,141 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
     let savedTransform = g.Transform.Clone()
     g.TranslateTransform(px, py)
     g.RotateTransform(angleDeg)
-    // All drawing is now relative to (0,0) = player center
     let px = 0.0f
     let py = 0.0f
 
-    let faceDir = 1.0f  // stick always extends to the "right" side in local space
+    let faceDir = 1.0f
+
+    // Skating leg animation: oscillate based on speed
+    let speedSq = float ent.VelX * float ent.VelX + float ent.VelY * float ent.VelY
+    let legOffset =
+        if speedSq > 16.0 then
+            sin (float32 gameTick * 0.5f) * 1.2f * uy * 0.3f
+        else
+            0.0f
 
     // ─── Helmet (head) ─────────────
     use helmetBrush = new SolidBrush(helmetColor)
-    g.FillRectangle(helmetBrush, px - 1.5f * u, py - 5.5f * uy, 3.0f * u, 2.5f * uy)
+    g.FillRectangle(helmetBrush, px - 1.5f * u, py - 5.5f * uy, 3.0f * u, 2.0f * uy)
+
+    // Face area (skin visible below helmet)
+    use skinBrush = new SolidBrush(skinColor)
+    g.FillRectangle(skinBrush, px - 1.0f * u, py - 3.5f * uy, 2.0f * u, 1.0f * uy)
 
     // ─── Goalie: face mask (cage) ──
     if isGoalie then
         use maskBrush = new SolidBrush(goalieMaskColor)
-        // Cage area on the face side
-        let maskX = px + 0.5f * u
-        g.FillRectangle(maskBrush, maskX, py - 5.0f * uy, 1.0f * u, 1.5f * uy)
-        // Cage bars
+        let maskX = px + 0.3f * u
+        g.FillRectangle(maskBrush, maskX, py - 4.5f * uy, 1.2f * u, 1.5f * uy)
         use cagePen = new Pen(Color.FromArgb(100, 100, 100), max 0.5f (0.3f * u))
-        let cx0 = maskX + 0.2f * u
-        let cx1 = maskX + 0.8f * u
-        g.DrawLine(cagePen, cx0, py - 5.0f * uy, cx0, py - 3.5f * uy)
-        g.DrawLine(cagePen, cx1, py - 5.0f * uy, cx1, py - 3.5f * uy)
+        let cx0 = maskX + 0.3f * u
+        let cx1 = maskX + 0.9f * u
+        g.DrawLine(cagePen, cx0, py - 4.5f * uy, cx0, py - 3.0f * uy)
+        g.DrawLine(cagePen, cx1, py - 4.5f * uy, cx1, py - 3.0f * uy)
 
     // ─── Jersey (body) ─────────────
     use jerseyBrush = new SolidBrush(jerseyColor)
-    // Shoulders: 8 wide, 2 tall
-    g.FillRectangle(jerseyBrush, px - 4.0f * u, py - 3.0f * uy, 8.0f * u, 2.0f * uy)
-    // Torso: 10 wide, 2.5 tall
-    g.FillRectangle(jerseyBrush, px - 5.0f * u, py - 1.0f * uy, 10.0f * u, 2.5f * uy)
+    // Shoulders
+    g.FillRectangle(jerseyBrush, px - 3.5f * u, py - 2.5f * uy, 7.0f * u, 1.5f * uy)
+    // Torso
+    g.FillRectangle(jerseyBrush, px - 3.0f * u, py - 1.0f * uy, 6.0f * u, 2.5f * uy)
+    // Jersey number stripe (white stripe across chest)
+    use stripeBrush = new SolidBrush(Color.FromArgb(80, 255, 255, 255))
+    g.FillRectangle(stripeBrush, px - 3.0f * u, py - 0.5f * uy, 6.0f * u, 0.6f * uy)
+
+    // ─── Arms / Gloves ─────────────
+    use gloveBrush = new SolidBrush(gloveColor)
+    // Left arm (extends slightly out from shoulder)
+    g.FillRectangle(jerseyBrush, px - 4.0f * u, py - 2.0f * uy, 1.2f * u, 2.0f * uy)
+    g.FillRectangle(gloveBrush, px - 4.0f * u, py + 0.0f * uy, 1.2f * u, 0.8f * uy)
+    // Right arm
+    g.FillRectangle(jerseyBrush, px + 2.8f * u, py - 2.0f * uy, 1.2f * u, 2.0f * uy)
+    g.FillRectangle(gloveBrush, px + 2.8f * u, py + 0.0f * uy, 1.2f * u, 0.8f * uy)
 
     // ─── Trousers / Goalie pads ────
     if isGoalie then
-        // Wide goalie leg pads (cream/white)
         use padBrush = new SolidBrush(goaliePadColor)
-        // Hips — slightly wider
-        g.FillRectangle(padBrush, px - 5.0f * u, py + 1.5f * uy, 10.0f * u, 1.5f * uy)
-        // Leg pads — wide rectangular pads
-        g.FillRectangle(padBrush, px - 4.5f * u, py + 3.0f * uy, 4.0f * u, 2.0f * uy)
-        g.FillRectangle(padBrush, px + 0.5f * u, py + 3.0f * uy, 4.0f * u, 2.0f * uy)
+        // Hips
+        g.FillRectangle(padBrush, px - 3.5f * u, py + 1.5f * uy, 7.0f * u, 1.2f * uy)
+        // Leg pads
+        g.FillRectangle(padBrush, px - 3.5f * u, py + 2.7f * uy, 3.0f * u, 2.0f * uy)
+        g.FillRectangle(padBrush, px + 0.5f * u, py + 2.7f * uy, 3.0f * u, 2.0f * uy)
         // Pad outlines
         use padPen = new Pen(Color.FromArgb(160, 150, 130), max 1.0f (0.4f * u))
-        g.DrawRectangle(padPen, px - 4.5f * u, py + 3.0f * uy, 4.0f * u, 2.0f * uy)
-        g.DrawRectangle(padPen, px + 0.5f * u, py + 3.0f * uy, 4.0f * u, 2.0f * uy)
+        g.DrawRectangle(padPen, px - 3.5f * u, py + 2.7f * uy, 3.0f * u, 2.0f * uy)
+        g.DrawRectangle(padPen, px + 0.5f * u, py + 2.7f * uy, 3.0f * u, 2.0f * uy)
     else
-        // Normal trousers
         use trouserBrush = new SolidBrush(trouserColor)
-        // Hips: 8 wide, 1.5 tall
-        g.FillRectangle(trouserBrush, px - 4.0f * u, py + 1.5f * uy, 8.0f * u, 1.5f * uy)
-        // Legs: 6 wide, 1 tall
-        g.FillRectangle(trouserBrush, px - 3.0f * u, py + 3.0f * uy, 6.0f * u, 1.0f * uy)
+        // Hips
+        g.FillRectangle(trouserBrush, px - 3.0f * u, py + 1.5f * uy, 6.0f * u, 1.2f * uy)
+        // Left leg (animated)
+        g.FillRectangle(trouserBrush, px - 2.5f * u, py + 2.7f * uy + legOffset, 2.2f * u, 1.0f * uy)
+        // Right leg (animated opposite)
+        g.FillRectangle(trouserBrush, px + 0.3f * u, py + 2.7f * uy - legOffset, 2.2f * u, 1.0f * uy)
+        // Socks (between trousers and skates)
+        use sockBrush = new SolidBrush(sockColor)
+        g.FillRectangle(sockBrush, px - 2.2f * u, py + 3.5f * uy + legOffset, 1.8f * u, 0.5f * uy)
+        g.FillRectangle(sockBrush, px + 0.4f * u, py + 3.5f * uy - legOffset, 1.8f * u, 0.5f * uy)
 
     // ─── Skate blades ──────────────
-    let skateY = if isGoalie then py + 5.2f * uy else py + 4.2f * uy
-    use skatePen = new Pen(skateColor, max 1.0f (0.6f * u))
-    g.DrawLine(skatePen, px - 2.5f * u, skateY, px - 0.5f * u, skateY)
-    g.DrawLine(skatePen, px + 0.5f * u, skateY, px + 2.5f * u, skateY)
+    use skatePen = new Pen(skateColor, max 1.0f (0.5f * u))
+    if isGoalie then
+        let skateY = py + 4.8f * uy
+        g.DrawLine(skatePen, px - 2.0f * u, skateY, px - 0.5f * u, skateY)
+        g.DrawLine(skatePen, px + 0.5f * u, skateY, px + 2.0f * u, skateY)
+    else
+        let skateYL = py + 4.0f * uy + legOffset
+        let skateYR = py + 4.0f * uy - legOffset
+        g.DrawLine(skatePen, px - 2.0f * u, skateYL, px - 0.3f * u, skateYL)
+        g.DrawLine(skatePen, px + 0.3f * u, skateYR, px + 2.0f * u, skateYR)
 
     // ─── Stick ─────────────────────
-    // Thicker shaft with tape at the handle end, visible blade at the puck end
-    let shaftWidth = max 2.0f (1.6f * u)
+    let shaftWidth = max 1.5f (1.2f * u)
     use shaftPen = new Pen(stickBrown, shaftWidth)
 
     let wobble =
         if stickAnim > 0 then
-            sin (float32 stickAnim * 1.5f) * 3.0f * u
+            sin (float32 stickAnim * 1.5f) * 2.5f * u
         else
             0.0f
 
-    let stickLen = 8.0f * u
+    let stickLen = 7.0f * u
     let startX = px + faceDir * 2.0f * u
-    let startY = py - 1.0f * uy
-    let endX = startX + faceDir * 3.0f * u   // less sideways extension
-    let endY = startY - stickLen + wobble     // mostly forward (upward in local space)
+    let startY = py - 0.5f * uy
+    let endX = startX + faceDir * 2.5f * u
+    let endY = startY - stickLen + wobble
 
-    // Shaft
     g.DrawLine(shaftPen, startX, startY, endX, endY)
 
-    // Tape on handle (top 20% of shaft, white)
-    let tapeFrac = 0.20f
+    // Tape on handle
+    let tapeFrac = 0.18f
     let tapeEndX = startX + (endX - startX) * tapeFrac
     let tapeEndY = startY + (endY - startY) * tapeFrac
     use tapePen = new Pen(stickTape, shaftWidth + 0.5f)
     g.DrawLine(tapePen, startX, startY, tapeEndX, tapeEndY)
 
-    // Blade at end of stick (wider, angled forward)
-    let bladeLen = 3.0f * u
-    let bladeW = max 2.5f (1.8f * u)
+    // Blade
+    let bladeLen = 2.5f * u
+    let bladeW = max 2.0f (1.4f * u)
     use bladePen = new Pen(stickBrown, bladeW)
     let bladeEndX = endX + faceDir * bladeLen
-    let bladeEndY = endY - 1.0f * uy
+    let bladeEndY = endY - 0.8f * uy
     g.DrawLine(bladePen, endX, endY, bladeEndX, bladeEndY)
 
-    // Restore transform before drawing active marker (marker should not rotate)
+    // Restore transform
     g.Transform <- savedTransform
     savedTransform.Dispose()
 
-    // ─── Active player marker (drawn in world space, not rotated) ──────
+    // ─── Active player marker: small downward-pointing arrow (no circle) ──────
     if isActive then
         let px0 = gameX sx ent.X
         let py0 = gameY sy ent.Y
-        let my = py0 - 7.0f * uy
-        let ms = 3.5f * sx
-        use markerPen = new Pen(activeMarker, 1.5f)
-        g.DrawLine(markerPen, px0, my - ms, px0 + ms, my)
-        g.DrawLine(markerPen, px0 + ms, my, px0, my + ms)
-        g.DrawLine(markerPen, px0, my + ms, px0 - ms, my)
-        g.DrawLine(markerPen, px0 - ms, my, px0, my - ms)
+        let my = py0 - 6.5f * uy   // above the head
+        let ms = 2.0f * sx
+        use markerPen = new Pen(activeMarker, max 1.0f (1.2f * sx))
+        // Small downward arrow / chevron
+        g.DrawLine(markerPen, px0 - ms, my - ms, px0, my)
+        g.DrawLine(markerPen, px0, my, px0 + ms, my - ms)
 
 // ─── Draw Puck ────────────────────────────────────────────────────────
 
@@ -511,7 +542,7 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
     drawCentered g bigFont yellowBrush width (height * 0.06f) "THE FS HOCKEY LEAGUE"
 
     let sub =
-        "Tuomas Hietanen, Influenced by Solar Hockey (c) 1990-1992 Galifir Developments"
+        "Tuomas Hietanen, 2026"
 
     drawCentered g smallFont grayBrush width (height * 0.06f + bigSize * 1.4f) sub
 
@@ -559,7 +590,7 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
            "Player 2: WASD + Space/Tab to shoot"
            "(Set team to HUMAN PLAYER for keyboard control)" |]
 
-    let baseY = height * 0.82f
+    let baseY = height * 0.7f
 
     instrLines
     |> Array.iteri (fun i line -> drawCentered g smallFont grayBrush width (baseY + float32 i * smallSize * 1.3f) line)
@@ -599,6 +630,18 @@ let renderFrame
 
         drawRink g sx sy team1Color team2Color
 
+        // Ice trail marks (drawn on ice, under players and puck)
+        for i in 0 .. gs.TrailMarkCount - 1 do
+            let mark = gs.TrailMarks.[i]
+            if mark.Life > 0<tick> then
+                let alpha = int (float (int mark.Life) / float (int TrailMarkLifetime) * 180.0) + 40
+                let alpha = min 220 alpha
+                use trailBrush = new SolidBrush(Color.FromArgb(alpha, 255, 255, 255))
+                let mx = gameX sx mark.X
+                let my = gameY sy mark.Y
+                let r = 1.2f * sx
+                g.FillEllipse(trailBrush, mx - r, my - r, r * 2.0f, r * 2.0f)
+
         let ppt = gs.PlayersPerTeam
         let t2s = gs.Team2Start
 
@@ -623,6 +666,7 @@ let renderFrame
                 (i = gs.ActivePlayer1)
                 gs.StickAnimTimers.[i]
                 isGoalie
+                (int gs.GameTick)
 
         // Team 2 players
         for i in 0 .. ppt - 1 do
@@ -639,6 +683,7 @@ let renderFrame
                 (ei = gs.ActivePlayer2)
                 gs.StickAnimTimers.[ei]
                 isGoalie
+                (int gs.GameTick)
 
         // HUD
         let rinkBottom = gameY sy FieldBottom + 4.0f * sy

@@ -159,7 +159,7 @@ type HockeyForm() as this =
 
     do
         this.Text <-
-            "The FS Hockey League \u2014 By Tuomas Hietanen \u2014 Influenced by Solar Hockey (c) 1990-1992 Galifir Developments"
+            "The FS Hockey League \u2014 By Tuomas Hietanen 2026"
 
         this.ClientSize <- Size(960, 620)
         this.StartPosition <- FormStartPosition.CenterScreen
@@ -363,6 +363,7 @@ type HockeyForm() as this =
                 match app.League with
                 | Some league ->
                     recordMatchResult league gs.Team1Idx gs.Team2Idx gs.Team1Score gs.Team2Score
+                    simulateCpuRound league league.CurrentRound
                     let finished = advanceRound league
                     app.Mode <- if finished then LeagueFinalStandings else LeagueStandings
                 | None -> app.Mode <- Menu

@@ -88,6 +88,20 @@ let teamShotPower =
        [| 64.0<subpx / tick>; 64.0<subpx / tick>; 64.0<subpx / tick> |] // 8  MOON
        [| 64.0<subpx / tick>; 64.0<subpx / tick>; 64.0<subpx / tick> |] |] // 9  EARTH
 
+/// Per-team overall strength (0.0 = weakest, 1.0 = strongest).
+/// Used for simulating CPU-vs-CPU league results.
+let teamStrength =
+    [| 0.20 // 0  HUMAN
+       0.20 // 1  PHOBOS
+       0.30 // 2  TITAN
+       0.35 // 3  PLUTO
+       0.50 // 4  NEPTUNE
+       0.55 // 5  SATURN
+       0.70 // 6  JUPITER
+       0.75 // 7  MARS
+       0.85 // 8  MOON
+       0.95 |] // 9  EARTH
+
 /// "Human player fast" toggle copies Moon Minerals stats (team 8)
 let humanFastTeamIdx = 8
 
@@ -116,6 +130,13 @@ let ChargeTicksForFull = 18<tick>
 
 let CollisionDist = 8.0<px>
 
+// ─── Ice Trail (skate marks) ──────────────────────────────────────────
+
+/// Maximum number of skate marks stored at once
+let MaxTrailMarks = 120
+/// Ticks before a skate mark fades away
+let TrailMarkLifetime = 90<tick>
+
 // ─── Possession ────────────────────────────────────────────────────────
 
 let PossessionTimer = 200<tick>
@@ -127,6 +148,11 @@ let StalemateFaceoff = 500<tick>
 let AiShootZoneX = 69.0<px>
 let AiDefenderShift = 28.0<px>
 let AiRandomShot = 8.0
+
+/// Minimum distance before same-team players start repelling each other
+let TeammateSeparationDist = 18.0<px>
+/// Velocity nudge applied per tick when teammates overlap
+let TeammateSeparationForce = 2.0<subpx / tick>
 
 /// AI shoot timing checkpoints (possession_timer == value triggers shot)
 let AiShootCheckpoints =

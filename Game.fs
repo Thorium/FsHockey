@@ -31,6 +31,12 @@ type GoalScoredBy =
     | Team1Scored
     | Team2Scored
 
+/// A skate mark left on the ice during a tight turn
+type TrailMark =
+    { mutable X: float<px>
+      mutable Y: float<px>
+      mutable Life: int<tick> }
+
 /// Player role for 5-player mode AI dispatch
 [<Struct>]
 type PlayerRole =
@@ -50,7 +56,9 @@ type TeamStats =
 
 type LeagueState =
     { Stats: TeamStats array
-      Schedule: (int * int) array
+      /// Full round-robin: Schedule.[round] = array of (team1, team2) matchups
+      Schedule: (int * int) array array
+      Rng: Random
       mutable CurrentRound: int
       mutable Finished: bool
       HumanTeam: int }
@@ -101,7 +109,13 @@ type GameState =
       mutable FireHoldTicks1: int<tick>
       mutable FireHoldTicks2: int<tick>
       // Stick animation timer per entity
-      mutable StickAnimTimers: int array }
+      mutable StickAnimTimers: int array
+      // Ice trail: skate marks from tight turns
+      TrailMarks: TrailMark array
+      mutable TrailMarkCount: int
+      mutable TrailMarkHead: int       // circular buffer write index
+      PrevDirX: float array            // previous direction per entity
+      PrevDirY: float array }
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -211,7 +225,12 @@ let createGameState () : GameState =
       KeyFire2 = false
       FireHoldTicks1 = 0<tick>
       FireHoldTicks2 = 0<tick>
-      StickAnimTimers = Array.zeroCreate MaxEntities }
+      StickAnimTimers = Array.zeroCreate MaxEntities
+      TrailMarks = Array.init MaxTrailMarks (fun _ -> { X = 0.0<px>; Y = 0.0<px>; Life = 0<tick> })
+      TrailMarkCount = 0
+      TrailMarkHead = 0
+      PrevDirX = Array.zeroCreate MaxEntities
+      PrevDirY = Array.zeroCreate MaxEntities }
 
 // ─── Set Player Mode ──────────────────────────────────────────────────
 
@@ -571,9 +590,15 @@ let aiGoalie (gs: GameState) idx isTeam1 =
     | _ -> ()
 
     // Movement: square zone in front of goal (like real crease)
-    // Goalie tracks puck Y, but also allowed to come out toward opponent a bit
+    // Goalie tracks puck Y, but allowed forward shift depends on game situation:
+    //   - Opponent has puck: stay very close to goal line (minimal forward shift)
+    //   - Ball free: moderate forward shift
+    //   - Team has puck: can come out a bit more
     let baseX = if isTeam1 then GoaliePatrolXLeft else GoaliePatrolXRight
-    let forwardShift = 20.0<px>   // how far goalie can come out toward center
+    let forwardShift =
+        if opponentOwnsBall gs isTeam1 then 6.0<px>     // stay deep
+        elif teamOwnsBall gs isTeam1 then 14.0<px>       // come out a bit
+        else 10.0<px>                                     // moderate
     let goalieMinX, goalieMaxX =
         if isTeam1 then baseX, baseX + forwardShift
         else baseX - forwardShift, baseX
@@ -791,6 +816,32 @@ let gameTick (gs: GameState) =
                 else
                     applyFriction gs.Entities.[i]
 
+            // Teammate separation: push same-team players apart when too close (6v6 only)
+            if gs.FivePlayerMode then
+                let sepDist = float TeammateSeparationDist
+                let sepDistSq = sepDist * sepDist
+                let sepForce = TeammateSeparationForce
+
+                let pushApart startIdx count =
+                    for i in startIdx .. startIdx + count - 2 do
+                        for j in i + 1 .. startIdx + count - 1 do
+                            let ei = gs.Entities.[i]
+                            let ej = gs.Entities.[j]
+                            let dx = float (ei.X - ej.X)
+                            let dy = float (ei.Y - ej.Y)
+                            let distSq = dx * dx + dy * dy
+                            if distSq < sepDistSq && distSq > 0.01 then
+                                let dist = sqrt distSq
+                                let nx = dx / dist
+                                let ny = dy / dist
+                                ei.VelX <- ei.VelX + nx * sepForce
+                                ei.VelY <- ei.VelY + ny * sepForce
+                                ej.VelX <- ej.VelX - nx * sepForce
+                                ej.VelY <- ej.VelY - ny * sepForce
+
+                pushApart 0 ppt
+                pushApart t2s ppt
+
             // When a player is (near-)stationary, face toward the puck
             let ball = gs.Entities.[gs.BallIdx]
             for i in 0 .. gs.NumEntities - 1 do
@@ -803,6 +854,34 @@ let gameTick (gs: GameState) =
                         if abs dx > 2.0 || abs dy > 2.0 then
                             ent.DirX <- float (sign dx)
                             ent.DirY <- float (sign dy)
+
+            // Ice trail: detect tight turns and leave skate marks
+            // A tight turn = direction changed significantly while moving fast
+            for i in 0 .. gs.NumPlayers - 1 do
+                let ent = gs.Entities.[i]
+                let speedSq = float ent.VelX * float ent.VelX + float ent.VelY * float ent.VelY
+                let prevDx = gs.PrevDirX.[i]
+                let prevDy = gs.PrevDirY.[i]
+                // Dot product of previous and current direction: < 0 means >90 degree turn
+                let dot = ent.DirX * prevDx + ent.DirY * prevDy
+                if speedSq > 100.0 && dot < 0.1 && (prevDx <> 0.0 || prevDy <> 0.0) then
+                    let markIdx = gs.TrailMarkHead
+                    let mark = gs.TrailMarks.[markIdx]
+                    mark.X <- ent.X
+                    mark.Y <- ent.Y
+                    mark.Life <- TrailMarkLifetime
+                    gs.TrailMarkHead <- (markIdx + 1) % MaxTrailMarks
+                    if gs.TrailMarkCount < MaxTrailMarks then
+                        gs.TrailMarkCount <- gs.TrailMarkCount + 1
+                // Update previous direction
+                gs.PrevDirX.[i] <- ent.DirX
+                gs.PrevDirY.[i] <- ent.DirY
+
+            // Decay trail marks
+            for i in 0 .. gs.TrailMarkCount - 1 do
+                let mark = gs.TrailMarks.[i]
+                if mark.Life > 0<tick> then
+                    mark.Life <- mark.Life - 1<tick>
 
             // Move entities and check walls/goals
             let mutable goalScored = false
@@ -837,11 +916,30 @@ let gameTick (gs: GameState) =
 
 // ─── League Mode ───────────────────────────────────────────────────────
 
-/// Generate 9-round schedule: human team vs each CPU opponent
-let generateSchedule humanTeam =
-    [| for i in 0 .. NumTeams - 1 do
-           if i <> humanTeam then
-               yield (humanTeam, i) |]
+/// Generate full round-robin schedule for N teams (N must be even).
+/// Returns an array of rounds; each round is an array of (team1, team2) matchups.
+/// Uses the standard circle method: fix team 0, rotate the rest.
+let generateSchedule (numTeams: int) =
+    let n = numTeams
+    // teams list excluding the fixed pivot (team index 0 in rotation, not team-idx 0)
+    let rotating = [| 0 .. n - 1 |]
+    // We use indices 0..n-1 directly; fix index 0 as pivot
+    let rot = Array.init (n - 1) id // rotation slots: 1 .. n-1
+    let rounds = Array.init (n - 1) (fun _ -> Array.zeroCreate<int * int> (n / 2))
+
+    for r in 0 .. n - 2 do
+        // Build current arrangement: pivot (index 0) + rotated list
+        let arrangement = Array.zeroCreate n
+        arrangement.[0] <- 0
+
+        for i in 0 .. n - 2 do
+            arrangement.[i + 1] <- rot.[(i + r) % (n - 1)] + 1
+
+        // Pair first with last, second with second-to-last, etc.
+        for m in 0 .. (n / 2) - 1 do
+            rounds.[r].[m] <- (arrangement.[m], arrangement.[n - 1 - m])
+
+    rounds
 
 let createTeamStats () =
     { Wins = 0
@@ -853,7 +951,8 @@ let createTeamStats () =
 
 let createLeagueState humanTeam =
     { Stats = Array.init NumTeams (fun _ -> createTeamStats ())
-      Schedule = generateSchedule humanTeam
+      Schedule = generateSchedule NumTeams
+      Rng = Random()
       CurrentRound = 0
       Finished = false
       HumanTeam = humanTeam }
@@ -881,6 +980,34 @@ let recordMatchResult (league: LeagueState) team1Idx team2Idx team1Goals team2Go
         s2.Draws <- s2.Draws + 1
         s2.Points <- s2.Points + 1
 
+/// Simulate a single CPU-vs-CPU match.
+/// Each team's expected goals = baseGoals * strength; actual goals are Poisson-sampled.
+/// Scores clamped to 0..10.
+let simulateCpuGoals (rng: Random) (strength: float) =
+    // Expected goals: ranges from ~1.5 (weakest) to ~5.0 (strongest)
+    let lambda = 1.5 + strength * 3.5
+    // Poisson sampling via Knuth's method
+    let mutable k = 0
+    let mutable p = 1.0
+    let l = exp (-lambda)
+
+    while p > l do
+        k <- k + 1
+        p <- p * rng.NextDouble()
+
+    min 10 (max 0 (k - 1))
+
+/// Simulate all CPU-vs-CPU matches for the given round and record results.
+let simulateCpuRound (league: LeagueState) (roundIdx: int) =
+    let round = league.Schedule.[roundIdx]
+
+    for (t1, t2) in round do
+        // Skip the matchup involving the human team (already played live)
+        if t1 <> league.HumanTeam && t2 <> league.HumanTeam then
+            let goals1 = simulateCpuGoals league.Rng teamStrength.[t1]
+            let goals2 = simulateCpuGoals league.Rng teamStrength.[t2]
+            recordMatchResult league t1 t2 goals1 goals2
+
 /// Sort standings by points descending, goal difference as tiebreak
 let getSortedStandings (league: LeagueState) =
     [| for i in 0 .. NumTeams - 1 -> (i, league.Stats.[i]) |]
@@ -895,5 +1022,10 @@ let advanceRound (league: LeagueState) =
 
     league.Finished
 
-/// Get current round matchup
-let currentMatchup (league: LeagueState) = league.Schedule.[league.CurrentRound]
+/// Get the human team's matchup for the current round (human always returned as t1)
+let currentMatchup (league: LeagueState) =
+    let round = league.Schedule.[league.CurrentRound]
+    let (a, b) =
+        round
+        |> Array.find (fun (t1, t2) -> t1 = league.HumanTeam || t2 = league.HumanTeam)
+    if a = league.HumanTeam then (a, b) else (b, a)
