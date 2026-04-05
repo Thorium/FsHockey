@@ -112,12 +112,13 @@ let private drawText (font: SpriteFontBase) (sb: SpriteBatch) (text: string) (po
     font.DrawText(sb, text, pos, color) |> ignore
 
 /// Create font sizes at a given scale factor.
-/// Sizes are larger than GDI+ equivalents because FontStashSharp measures in pixels
-/// while GDI+ Font uses points (~1.33x larger). Values tuned to match original appearance.
+/// FontStashSharp measures in pixels; GDI+ Font used points (1 pt ≈ 1.33 px).
+/// Original GDI+: big=9*s, med=6*s, small=5*s (in points).
+/// Multiply by ~1.33 for pixel equivalents.
 let private mkFonts (scale: float32) =
-    let big = max 14.0f (18.0f * scale)
-    let med = max 12.0f (14.0f * scale)
-    let small = max 10.0f (11.0f * scale)
+    let big = max 10.0f (12.0f * scale)
+    let med = max 9.0f (8.0f * scale)
+    let small = max 8.0f (7.0f * scale)
     struct (big, med, small)
 
 // ─── Draw Rink ────────────────────────────────────────────────────────
@@ -171,16 +172,37 @@ let drawRink (sb: SpriteBatch) sx sy leftGoalColor rightGoalColor =
 // ─── Draw Retro Hockey Player ──────────────────────────────────────────
 
 let drawRetroPlayer (sb: SpriteBatch) sx sy (ent: Entity) jerseyColor helmetColor isActive (stickAnim: int) isGoalie (gameTick: int) =
-    let px = gameX sx ent.X
-    let py = gameY sy ent.Y
+    let screenX = gameX sx ent.X
+    let screenY = gameY sy ent.Y
     let u = 0.85f * sx
     let uy = 0.85f * sy
 
-    // Skating leg animation
+    // ─── Rotation: face direction of DirX/DirY (matches original GDI+ behavior) ───
+    // Compute rotation angle from direction vector
+    let angleRad =
+        if ent.DirX <> 0.0 || ent.DirY <> 0.0 then
+            float32 (System.Math.Atan2(float ent.DirX, -(float ent.DirY)))
+        else
+            0.0f
+
+    // End the current SpriteBatch, begin a new one with rotation transform around the entity position.
+    // This mirrors the GDI+ TranslateTransform + RotateTransform approach.
+    sb.End()
+    let rotMatrix =
+        Matrix.CreateTranslation(-screenX, -screenY, 0.0f)
+        * Matrix.CreateRotationZ(angleRad)
+        * Matrix.CreateTranslation(screenX, screenY, 0.0f)
+    sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied, transformMatrix = rotMatrix)
+
+    // Draw body at origin-relative coordinates (px, py = screenX, screenY)
+    let px = screenX
+    let py = screenY
+
+    // Skating leg animation — slow oscillation to look like skating, not running
     let speedSq = float ent.VelX * float ent.VelX + float ent.VelY * float ent.VelY
     let legOffset =
         if speedSq > 16.0 then
-            sin (float32 gameTick * 0.5f) * 1.2f * uy * 0.3f
+            sin (float32 gameTick * 0.15f) * 1.2f * uy * 0.3f
         else
             0.0f
 
@@ -262,8 +284,8 @@ let drawRetroPlayer (sb: SpriteBatch) sx sy (ent: Entity) jerseyColor helmetColo
         else
             0.0f
 
-    let faceDir =
-        if ent.DirX >= 0.0 then 1.0f else -1.0f
+    // Stick always points forward (faceDir=1) since the whole sprite rotates
+    let faceDir = 1.0f
 
     let stickLen = 7.0f * u
     let startX = px + faceDir * 2.0f * u
@@ -286,13 +308,17 @@ let drawRetroPlayer (sb: SpriteBatch) sx sy (ent: Entity) jerseyColor helmetColo
     let bladeEndY = endY - 0.8f * uy
     drawLine sb endX endY bladeEndX bladeEndY bladeW stickBrown
 
-    // ─── Active player marker
+    // End the rotated SpriteBatch, restart the normal one
+    sb.End()
+    sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied)
+
+    // ─── Active player marker (drawn in screen space, NOT rotated)
     if isActive then
-        let my = py - 6.5f * uy
+        let my = screenY - 6.5f * uy
         let ms = 2.0f * sx
         let markerW = max 1.0f (1.2f * sx)
-        drawLine sb (px - ms) (my - ms) px my markerW activeMarkerColor
-        drawLine sb px my (px + ms) (my - ms) markerW activeMarkerColor
+        drawLine sb (screenX - ms) (my - ms) screenX my markerW activeMarkerColor
+        drawLine sb screenX my (screenX + ms) (my - ms) markerW activeMarkerColor
 
 // ─── Draw Puck ────────────────────────────────────────────────────────
 
