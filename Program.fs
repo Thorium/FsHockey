@@ -173,6 +173,11 @@ type HockeyGame() as this =
     override this.Update(gameTime) =
         let ks = Keyboard.GetState()
 
+        // F11 toggles fullscreen (works in any mode)
+        if this.IsKeyPressed(Keys.F11, ks) then
+            graphics.IsFullScreen <- not graphics.IsFullScreen
+            graphics.ApplyChanges()
+
         match app.Mode with
         | Menu ->
             if this.IsKeyPressed(Keys.Tab, ks) then

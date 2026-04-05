@@ -112,13 +112,13 @@ let private drawText (font: SpriteFontBase) (sb: SpriteBatch) (text: string) (po
     font.DrawText(sb, text, pos, color) |> ignore
 
 /// Create font sizes at a given scale factor.
-/// FontStashSharp measures in pixels; GDI+ Font used points (1 pt ≈ 1.33 px).
-/// Original GDI+: big=9*s, med=6*s, small=5*s (in points).
-/// Multiply by ~1.33 for pixel equivalents.
+/// Uses the same numeric values as the original GDI+ point sizes.
+/// DejaVu Sans Mono (FontStashSharp) renders comparably to Consolas (GDI+)
+/// at the same numeric size, so no extra multiplier is needed.
 let private mkFonts (scale: float32) =
-    let big = max 10.0f (12.0f * scale)
-    let med = max 9.0f (8.0f * scale)
-    let small = max 8.0f (7.0f * scale)
+    let big = max 8.0f (9.0f * scale)
+    let med = max 7.0f (6.0f * scale)
+    let small = max 6.0f (5.0f * scale)
     struct (big, med, small)
 
 // ─── Draw Rink ────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ let drawRetroPlayer (sb: SpriteBatch) sx sy (ent: Entity) jerseyColor helmetColo
     let speedSq = float ent.VelX * float ent.VelX + float ent.VelY * float ent.VelY
     let legOffset =
         if speedSq > 16.0 then
-            sin (float32 gameTick * 0.15f) * 1.2f * uy * 0.3f
+            sin (float32 gameTick * 0.08f) * 1.2f * uy * 0.3f
         else
             0.0f
 
@@ -594,6 +594,7 @@ let drawMenu (sb: SpriteBatch) width height selectedTeam1 selectedTeam2 activeCo
             [| "UP/DOWN = Select Team  |  TAB = Switch Column"
                "ENTER = Start Game  |  L = Play League  |  ESC = Quit"
                $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
+               "F11 = Toggle Fullscreen"
                "Hold shoot key longer for harder shot, quick tap for a pass"
                "Player 1: Arrow Keys + RShift/Enter to shoot"
                "Player 2: WASD + Space/Tab to shoot"
