@@ -64,9 +64,9 @@ let setTeamSpeeds (app: AppState) =
             let statIdx =
                 if gs.FivePlayerMode then
                     match i with
-                    | 0 -> 0
-                    | i when i <= 2 -> min i 2
-                    | _ -> 2
+                    | 0 -> 0 // goalie
+                    | i when i <= 2 -> min i 2 // center/forward
+                    | _ -> 2 // wings and extra forward use forward stats
                 else
                     min i 2
 

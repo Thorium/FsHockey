@@ -111,7 +111,9 @@ let private drawCentered (sb: SpriteBatch) (font: SpriteFontBase) width y (text:
 let private drawText (font: SpriteFontBase) (sb: SpriteBatch) (text: string) (pos: Vector2) (color: Color) =
     font.DrawText(sb, text, pos, color) |> ignore
 
-/// Create font sizes at a given scale factor
+/// Create font sizes at a given scale factor.
+/// Sizes are larger than GDI+ equivalents because FontStashSharp measures in pixels
+/// while GDI+ Font uses points (~1.33x larger). Values tuned to match original appearance.
 let private mkFonts (scale: float32) =
     let big = max 14.0f (18.0f * scale)
     let med = max 12.0f (14.0f * scale)
