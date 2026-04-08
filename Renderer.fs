@@ -53,6 +53,7 @@ let grayColor = Color(160, 160, 160)
 // ─── Font System ──────────────────────────────────────────────────────
 
 let mutable private fontSystem: FontSystem = null
+let mutable private fontLoaded = false
 
 let initFonts (_device: GraphicsDevice) =
     let settings = FontSystemSettings()
@@ -73,15 +74,27 @@ let initFonts (_device: GraphicsDevice) =
            "C:\\Windows\\Fonts\\cour.ttf"
            "C:\\Windows\\Fonts\\lucon.ttf" |]
 
-    let mutable loaded = false
-
     for path in fontPaths do
-        if not loaded && System.IO.File.Exists(path) then
+        if not fontLoaded && System.IO.File.Exists(path) then
             try
                 fontSystem.AddFont(System.IO.File.ReadAllBytes(path))
-                loaded <- true
+                fontLoaded <- true
             with
             | _ -> ()
+
+    // Bundled fallback font (Roboto Mono, Apache 2.0) next to the executable
+    if not fontLoaded then
+        let bundledPath = System.IO.Path.Combine(System.AppContext.BaseDirectory, "RobotoMono-Regular.ttf")
+        if System.IO.File.Exists(bundledPath) then
+            try
+                fontSystem.AddFont(System.IO.File.ReadAllBytes(bundledPath))
+                fontLoaded <- true
+            with
+            | _ -> ()
+
+    if not fontLoaded then
+        eprintfn "WARNING: No monospace font found. All text will be invisible."
+        eprintfn "  Searched system fonts and bundled fallback (RobotoMono-Regular.ttf)."
 
 let disposeFonts () =
     if fontSystem <> null then
@@ -89,7 +102,7 @@ let disposeFonts () =
         fontSystem <- null
 
 let private getFont (size: float32) =
-    if fontSystem <> null then
+    if fontSystem <> null && fontLoaded then
         Some(fontSystem.GetFont(size))
     else
         None
