@@ -1,15 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4.1" />
-    <PackageReference Include="FontStashSharp.MonoGame" Version="1.5.4" />
-  </ItemGroup>
-
+  <!-- Shared, framework-agnostic game logic + the Fable (browser) front-end.
+       Renderer.fs draws to an HTML5 canvas; Program.fs is the browser entry
+       point. The desktop (WinForms / MonoGame) front-ends live on their own
+       branches and share the same Physics.fs / Game.fs. -->
   <ItemGroup>
     <Compile Include="Physics.fs" />
     <Compile Include="Game.fs" />
@@ -19,7 +18,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="RobotoMono-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="Fable.Core" Version="5.0.0" />
+  </ItemGroup>
+
+  <!-- Web assets (for IDE visibility; Vite consumes them directly) -->
+  <ItemGroup>
+    <Content Include="index.html" />
+    <Content Include="styles.css" />
+    <None Include="package.json" />
+    <None Include="vite.config.ts" />
   </ItemGroup>
 
 </Project>

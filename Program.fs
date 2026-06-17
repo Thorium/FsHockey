@@ -1,14 +1,40 @@
-/// THE FS HOCKEY LEAGUE — Program Entry Point (MonoGame)
-/// MonoGame window, 30 FPS game loop, keyboard input, menu/league state
+/// THE FS HOCKEY LEAGUE — Browser entry point (Fable)
+/// Sets up the canvas, runs the 30 FPS fixed-step game loop on
+/// requestAnimationFrame, maps keyboard input, and drives the
+/// menu / exhibition / league state machine (ported from the MonoGame build).
+///
+/// Controls:
+///   Player 1: Arrow keys + RShift/Enter to shoot
+///   Player 2: WASD + Space/Tab to shoot
+///   Menu: UP/DOWN select team, TAB switch column, ENTER start, L league
+///   F = fast human, H = hard mode, 5 = 3v3/6v6, F11 = fullscreen
 module HockeyDemo.Program
 
-open Microsoft.Xna.Framework
-open Microsoft.Xna.Framework.Graphics
-open Microsoft.Xna.Framework.Input
+open Fable.Core
 open HockeyDemo.Physics
 open HockeyDemo.Game
-open HockeyDemo.Drawing
 open HockeyDemo.Renderer
+
+// ─── DOM / JS interop (raw Emit, binding-version independent) ───────────
+[<Emit("document.getElementById($0)")>]
+let private getEl (id: string) : obj = jsNative
+[<Emit("$0.getContext('2d')")>]
+let private get2dCtx (canvas: obj) : obj = jsNative
+[<Emit("$0.width")>]
+let private canvasW (c: obj) : float = jsNative
+[<Emit("$0.height")>]
+let private canvasH (c: obj) : float = jsNative
+[<Emit("document.addEventListener($0, $1)")>]
+let private onDocument (event: string) (handler: obj -> unit) : unit = jsNative
+[<Emit("window.requestAnimationFrame($0)")>]
+let private requestFrame (cb: float -> unit) : unit = jsNative
+[<Emit("$0.code")>]
+let private evCode (e: obj) : string = jsNative
+[<Emit("$0.preventDefault()")>]
+let private preventDefault (e: obj) : unit = jsNative
+/// Toggle browser fullscreen on the document element.
+[<Emit("(function(){ if (document.fullscreenElement) { document.exitFullscreen(); } else { document.documentElement.requestFullscreen(); } })()")>]
+let private toggleFullscreen () : unit = jsNative
 
 // ─── Application Mode ─────────────────────────────────────────────────
 
@@ -45,7 +71,7 @@ let createAppState () =
       FivePlayerMode = false
       League = None }
 
-// ─── Helpers ──────────────────────────────────────────────────────────
+// ─── Helpers (ported from the MonoGame Program) ────────────────────────
 
 /// Configure entity speeds/power based on team selection.
 let setTeamSpeeds (app: AppState) =
@@ -118,243 +144,203 @@ let startExhibitionMatch (app: AppState) =
 let inline matchOver (gs: GameState) =
     not gs.Playing && gs.ClockSeconds >= gs.PeriodLength
 
-// ─── Key Mapping Helpers ──────────────────────────────────────────────
+// ─── Input state ───────────────────────────────────────────────────────
+
+let private keys = System.Collections.Generic.HashSet<string>()
+let private prevKeys = System.Collections.Generic.HashSet<string>()
+
+let private has (code: string) = keys.Contains code
+/// True only on the frame the key transitions from up to down.
+let private pressed (code: string) = keys.Contains code && not (prevKeys.Contains code)
 
 /// Apply player 1 directional + fire keys (Arrow keys + RShift/Enter)
-let private mapPlayer1Keys (gs: GameState) (ks: KeyboardState) =
-    gs.KeyLeft1 <- ks.IsKeyDown(Keys.Left)
-    gs.KeyRight1 <- ks.IsKeyDown(Keys.Right)
-    gs.KeyUp1 <- ks.IsKeyDown(Keys.Up)
-    gs.KeyDown1 <- ks.IsKeyDown(Keys.Down)
-    gs.KeyFire1 <- ks.IsKeyDown(Keys.RightShift) || ks.IsKeyDown(Keys.Enter)
+let private mapPlayer1Keys (gs: GameState) =
+    gs.KeyLeft1 <- has "ArrowLeft"
+    gs.KeyRight1 <- has "ArrowRight"
+    gs.KeyUp1 <- has "ArrowUp"
+    gs.KeyDown1 <- has "ArrowDown"
+    gs.KeyFire1 <- has "ShiftRight" || has "Enter"
 
 /// Apply player 2 directional + fire keys (WASD + Space/Tab)
-let private mapPlayer2Keys (gs: GameState) (ks: KeyboardState) =
-    gs.KeyLeft2 <- ks.IsKeyDown(Keys.A)
-    gs.KeyRight2 <- ks.IsKeyDown(Keys.D)
-    gs.KeyUp2 <- ks.IsKeyDown(Keys.W)
-    gs.KeyDown2 <- ks.IsKeyDown(Keys.S)
-    gs.KeyFire2 <- ks.IsKeyDown(Keys.Space) || ks.IsKeyDown(Keys.Tab)
+let private mapPlayer2Keys (gs: GameState) =
+    gs.KeyLeft2 <- has "KeyA"
+    gs.KeyRight2 <- has "KeyD"
+    gs.KeyUp2 <- has "KeyW"
+    gs.KeyDown2 <- has "KeyS"
+    gs.KeyFire2 <- has "Space" || has "Tab"
 
-// ─── Main Game (MonoGame) ─────────────────────────────────────────────
+// ─── State ───────────────────────────────────────────────────────────────
 
-type HockeyGame() as this =
-    inherit Game()
+let private canvas = getEl "screen"
+let private ctx = get2dCtx canvas
+let private viewW = canvasW canvas
+let private viewH = canvasH canvas
 
-    let graphics = new GraphicsDeviceManager(this)
-    let mutable spriteBatch: SpriteBatch = null
-    let app = createAppState ()
-    let gs = app.GameState
-    let mutable prevKeyState = KeyboardState()
+let private app = createAppState ()
+let private gs = app.GameState
 
-    do
-        this.Window.Title <-
-            "The FS Hockey League \u2014 By Tuomas Hietanen 2026"
+// ─── Fixed-step update (mirrors MonoGame Update at 30 FPS) ──────────────
 
-        graphics.PreferredBackBufferWidth <- 960
-        graphics.PreferredBackBufferHeight <- 620
-        this.IsMouseVisible <- true
-        this.IsFixedTimeStep <- true
-        this.TargetElapsedTime <- System.TimeSpan.FromSeconds(1.0 / float GameFps)
+let private update () =
+    // F11 toggles fullscreen (works in any mode)
+    if pressed "F11" then toggleFullscreen ()
 
-    override _.LoadContent() =
-        spriteBatch <- new SpriteBatch(graphics.GraphicsDevice)
-        initTextures graphics.GraphicsDevice
-        initFonts graphics.GraphicsDevice
+    match app.Mode with
+    | Menu ->
+        if pressed "Tab" then
+            app.ActiveColumn <- 1 - app.ActiveColumn
 
-    override _.UnloadContent() =
-        disposeTextures ()
-        disposeFonts ()
+        if pressed "ArrowUp" || pressed "ArrowDown" then
+            let delta = if has "ArrowUp" then -1 else 1
 
-    /// Check if a key was just pressed this frame (not held)
-    member private _.IsKeyPressed(key: Keys, current: KeyboardState) =
-        current.IsKeyDown(key) && prevKeyState.IsKeyUp(key)
+            if app.ActiveColumn = 0 then
+                app.SelectedTeam1 <- (app.SelectedTeam1 + delta + NumTeams) % NumTeams
+            else
+                app.SelectedTeam2 <- (app.SelectedTeam2 + delta + NumTeams) % NumTeams
 
-    override this.Update(gameTime) =
-        let ks = Keyboard.GetState()
+        if pressed "Enter" then startExhibitionMatch app
 
-        // F11 toggles fullscreen (works in any mode)
-        if this.IsKeyPressed(Keys.F11, ks) then
-            graphics.IsFullScreen <- not graphics.IsFullScreen
-            graphics.ApplyChanges()
+        if pressed "KeyL" then
+            app.League <- Some(createLeagueState app.SelectedTeam1)
+            app.Mode <- LeagueMatchup
 
-        match app.Mode with
-        | Menu ->
-            if this.IsKeyPressed(Keys.Tab, ks) then
-                app.ActiveColumn <- 1 - app.ActiveColumn
+        if pressed "KeyF" then app.FastHuman <- not app.FastHuman
+        if pressed "KeyH" then app.HardMode <- not app.HardMode
+        if pressed "Digit5" then app.FivePlayerMode <- not app.FivePlayerMode
 
-            if this.IsKeyPressed(Keys.Up, ks) || this.IsKeyPressed(Keys.Down, ks) then
-                let delta = if ks.IsKeyDown(Keys.Up) then -1 else 1
+    | Playing ->
+        mapPlayer1Keys gs
+        mapPlayer2Keys gs
 
-                if app.ActiveColumn = 0 then
-                    app.SelectedTeam1 <- (app.SelectedTeam1 + delta + NumTeams) % NumTeams
-                else
-                    app.SelectedTeam2 <- (app.SelectedTeam2 + delta + NumTeams) % NumTeams
+        for _ in 1..PhysicsTicksPerFrame do
+            gameTick gs
 
-            if this.IsKeyPressed(Keys.Enter, ks) then
-                startExhibitionMatch app
+        gs.BallAnimFrame <- (gs.BallAnimFrame + 1) % (BallAnimFrames * 2)
 
-            if this.IsKeyPressed(Keys.L, ks) then
-                app.League <- Some(createLeagueState app.SelectedTeam1)
-                app.Mode <- LeagueMatchup
+        if pressed "Escape" then app.Mode <- Menu
 
-            if this.IsKeyPressed(Keys.F, ks) then
-                app.FastHuman <- not app.FastHuman
+        if pressed "Space" && matchOver gs then initMatch gs
 
-            if this.IsKeyPressed(Keys.H, ks) then
-                app.HardMode <- not app.HardMode
+    | LeagueMatchup ->
+        if pressed "Space" then startLeagueMatch app
 
-            if this.IsKeyPressed(Keys.D5, ks) then
-                app.FivePlayerMode <- not app.FivePlayerMode
+        if pressed "Escape" then
+            app.League <- None
+            app.Mode <- Menu
 
-            if this.IsKeyPressed(Keys.Escape, ks) then
-                this.Exit()
+    | LeaguePlaying ->
+        mapPlayer1Keys gs
 
-        | Playing ->
-            mapPlayer1Keys gs ks
-            mapPlayer2Keys gs ks
+        for _ in 1..PhysicsTicksPerFrame do
+            gameTick gs
 
-            for _ in 1..PhysicsTicksPerFrame do
-                gameTick gs
+        gs.BallAnimFrame <- (gs.BallAnimFrame + 1) % (BallAnimFrames * 2)
 
-            gs.BallAnimFrame <- (gs.BallAnimFrame + 1) % (BallAnimFrames * 2)
-
-            if this.IsKeyPressed(Keys.Escape, ks) then
-                app.Mode <- Menu
-
-            if this.IsKeyPressed(Keys.Space, ks) && matchOver gs then
-                initMatch gs
-
-        | LeagueMatchup ->
-            if this.IsKeyPressed(Keys.Space, ks) then
-                startLeagueMatch app
-
-            if this.IsKeyPressed(Keys.Escape, ks) then
-                app.League <- None
-                app.Mode <- Menu
-
-        | LeaguePlaying ->
-            mapPlayer1Keys gs ks
-
-            for _ in 1..PhysicsTicksPerFrame do
-                gameTick gs
-
-            gs.BallAnimFrame <- (gs.BallAnimFrame + 1) % (BallAnimFrames * 2)
-
-            if this.IsKeyPressed(Keys.Space, ks) && matchOver gs then
-                match app.League with
-                | Some league ->
-                    recordMatchResult league gs.Team1Idx gs.Team2Idx gs.Team1Score gs.Team2Score
-                    simulateCpuRound league league.CurrentRound
-                    let finished = advanceRound league
-                    app.Mode <- if finished then LeagueFinalStandings else LeagueStandings
-                | None -> app.Mode <- Menu
-
-            if this.IsKeyPressed(Keys.Escape, ks) then
-                app.League <- None
-                app.Mode <- Menu
-
-        | LeagueStandings ->
-            if this.IsKeyPressed(Keys.Space, ks) then
-                app.Mode <- LeagueMatchup
-
-            if this.IsKeyPressed(Keys.Escape, ks) then
-                app.League <- None
-                app.Mode <- Menu
-
-        | LeagueFinalStandings ->
-            if this.IsKeyPressed(Keys.Space, ks) || this.IsKeyPressed(Keys.Escape, ks) then
-                app.League <- None
-                app.Mode <- Menu
-
-        prevKeyState <- ks
-        base.Update(gameTime)
-
-    override _.Draw(gameTime) =
-        graphics.GraphicsDevice.Clear(Color.Black)
-
-        let w = graphics.GraphicsDevice.Viewport.Width
-        let h = graphics.GraphicsDevice.Viewport.Height
-        let fw = float32 w
-        let fh = float32 h
-
-        spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied)
-
-        match app.Mode with
-        | Menu ->
-            drawMenu
-                spriteBatch
-                fw
-                fh
-                app.SelectedTeam1
-                app.SelectedTeam2
-                app.ActiveColumn
-                app.FastHuman
-                app.HardMode
-                app.FivePlayerMode
-
-        | Playing ->
-            renderFrame
-                spriteBatch
-                gs
-                w
-                h
-                false
-                app.SelectedTeam1
-                app.SelectedTeam2
-                app.ActiveColumn
-                false
-                app.FastHuman
-                app.HardMode
-                app.FivePlayerMode
-
-        | LeagueMatchup ->
+        if pressed "Space" && matchOver gs then
             match app.League with
             | Some league ->
-                let t1, t2 = currentMatchup league
+                recordMatchResult league gs.Team1Idx gs.Team2Idx gs.Team1Score gs.Team2Score
+                simulateCpuRound league league.CurrentRound
+                let finished = advanceRound league
+                app.Mode <- if finished then LeagueFinalStandings else LeagueStandings
+            | None -> app.Mode <- Menu
 
-                drawLeagueMatchup
-                    spriteBatch
-                    fw
-                    fh
-                    (league.CurrentRound + 1)
-                    league.Schedule.Length
-                    teamNames.[t1]
-                    teamNames.[t2]
-            | None -> ()
+        if pressed "Escape" then
+            app.League <- None
+            app.Mode <- Menu
 
-        | LeaguePlaying ->
-            renderFrame
-                spriteBatch
-                gs
-                w
-                h
-                false
-                app.SelectedTeam1
-                app.SelectedTeam2
-                app.ActiveColumn
-                true
-                app.FastHuman
-                app.HardMode
-                app.FivePlayerMode
+    | LeagueStandings ->
+        if pressed "Space" then app.Mode <- LeagueMatchup
 
-        | LeagueStandings ->
-            app.League
-            |> Option.iter (fun league ->
-                drawLeagueStandings spriteBatch fw fh (getSortedStandings league) false league.HumanTeam)
+        if pressed "Escape" then
+            app.League <- None
+            app.Mode <- Menu
 
-        | LeagueFinalStandings ->
-            app.League
-            |> Option.iter (fun league ->
-                drawLeagueStandings spriteBatch fw fh (getSortedStandings league) true league.HumanTeam)
+    | LeagueFinalStandings ->
+        if pressed "Space" || pressed "Escape" then
+            app.League <- None
+            app.Mode <- Menu
 
-        spriteBatch.End()
-        base.Draw(gameTime)
+    // Snapshot key state for next-frame edge detection
+    prevKeys.Clear()
+    for k in keys do
+        prevKeys.Add k |> ignore
 
-// ─── Entry Point ──────────────────────────────────────────────────────
+// ─── Render (mirrors MonoGame Draw) ─────────────────────────────────────
 
-[<EntryPoint>]
-let main _ =
-    use game = new HockeyGame()
-    game.Run()
-    0
+let private render () =
+    let fw = viewW
+    let fh = viewH
+
+    match app.Mode with
+    | Menu ->
+        drawMenu ctx fw fh app.SelectedTeam1 app.SelectedTeam2 app.ActiveColumn app.FastHuman app.HardMode app.FivePlayerMode
+
+    | Playing -> renderFrame ctx gs viewW viewH false
+
+    | LeagueMatchup ->
+        match app.League with
+        | Some league ->
+            let t1, t2 = currentMatchup league
+
+            drawLeagueMatchup
+                ctx
+                fw
+                fh
+                (league.CurrentRound + 1)
+                league.Schedule.Length
+                teamNames.[t1]
+                teamNames.[t2]
+        | None -> ()
+
+    | LeaguePlaying -> renderFrame ctx gs viewW viewH true
+
+    | LeagueStandings ->
+        app.League
+        |> Option.iter (fun league ->
+            drawLeagueStandings ctx fw fh (getSortedStandings league) false league.HumanTeam)
+
+    | LeagueFinalStandings ->
+        app.League
+        |> Option.iter (fun league ->
+            drawLeagueStandings ctx fw fh (getSortedStandings league) true league.HumanTeam)
+
+// ─── Input handlers ──────────────────────────────────────────────────────
+
+/// Keys we consume for the game; prevent their default browser behavior.
+let private gameKeys =
+    System.Collections.Generic.HashSet<string>(
+        [| "ArrowLeft"; "ArrowRight"; "ArrowUp"; "ArrowDown"
+           "ShiftRight"; "Enter"; "KeyA"; "KeyD"; "KeyW"; "KeyS"
+           "Space"; "Tab"; "KeyL"; "KeyF"; "KeyH"; "Digit5"; "F11" |])
+
+let private onKeyDown (e: obj) =
+    let code = evCode e
+    keys.Add code |> ignore
+    if gameKeys.Contains code then preventDefault e
+
+let private onKeyUp (e: obj) =
+    keys.Remove(evCode e) |> ignore
+
+// ─── Game loop (fixed 30 FPS step, rendered every animation frame) ──────
+
+let private frameMs = 1000.0 / float GameFps
+let mutable private lastTime = 0.0
+let mutable private acc = 0.0
+
+let rec private loop (ts: float) =
+    let dt = if lastTime = 0.0 then frameMs else ts - lastTime
+    lastTime <- ts
+    acc <- acc + min dt 200.0   // clamp to avoid spiral-of-death after a stall
+
+    while acc >= frameMs do
+        update ()
+        acc <- acc - frameMs
+
+    render ()
+    requestFrame loop
+
+// ─── Bootstrap ──────────────────────────────────────────────────────────
+onDocument "keydown" onKeyDown
+onDocument "keyup" onKeyUp
+requestFrame loop

@@ -1,0 +1,14 @@
+{
+  "name": "fshockey.web",
+  "version": "1.0.0",
+  "description": "The FS Hockey League — Solar-Hockey-style arcade hockey, F# + Fable + Canvas",
+  "type": "module",
+  "scripts": {
+    "dev": "dotnet fable watch --run npx vite",
+    "build": "dotnet fable && npx vite build"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "vite": "^8.0.0"
+  }
+}

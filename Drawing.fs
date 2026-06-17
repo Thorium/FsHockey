@@ -1,144 +1,114 @@
-/// THE FS HOCKEY LEAGUE — MonoGame Drawing Primitives
-/// Helper functions for 2D primitive rendering with MonoGame SpriteBatch.
+/// THE FS HOCKEY LEAGUE — Canvas 2D Drawing Primitives (Fable)
+/// Helper functions for 2D primitive rendering on an HTML5 canvas context.
+/// Mirrors the MonoGame Drawing module API so the renderer reads the same,
+/// but draws through the browser's 2D context instead of a SpriteBatch.
 module HockeyDemo.Drawing
 
-open Microsoft.Xna.Framework
-open Microsoft.Xna.Framework.Graphics
+open Fable.Core
 
-// ─── Pixel Texture ────────────────────────────────────────────────────
-// A 1x1 white texture used for drawing filled rectangles and lines.
+// ─── Colour ───────────────────────────────────────────────────────────
+// A simple RGBA colour carrying 0..255 channels, with a cached CSS string.
+// Constructed like the MonoGame Color so renderer code stays familiar:
+//   Color(200, 220, 240)         opaque
+//   Color(255, 255, 80, 128)     with alpha
 
-let mutable private pixelTexture: Texture2D = null
-let mutable private circleTexture: Texture2D = null
+type Color(r: int, g: int, b: int, a: int) =
+    new(r, g, b) = Color(r, g, b, 255)
+    member _.R = r
+    member _.G = g
+    member _.B = b
+    member _.A = a
 
-/// Initialize the shared pixel and circle textures. Call once at LoadContent.
-let initTextures (device: GraphicsDevice) =
-    pixelTexture <- new Texture2D(device, 1, 1)
-    pixelTexture.SetData([| Color.White |])
+    /// CSS colour string (rgb / rgba) for fillStyle / strokeStyle.
+    member _.Css =
+        if a >= 255 then $"rgb({r},{g},{b})"
+        else $"rgba({r},{g},{b},{float a / 255.0})"
 
-    // Pre-generate a circle texture (diameter 64 px) for ellipse drawing
-    let diam = 64
-    let r = float32 diam / 2.0f
-    let data = Array.create (diam * diam) Color.Transparent
+    static member White = Color(255, 255, 255)
+    static member Black = Color(0, 0, 0)
+    static member Transparent = Color(0, 0, 0, 0)
 
-    for y in 0 .. diam - 1 do
-        for x in 0 .. diam - 1 do
-            let dx = float32 x - r + 0.5f
-            let dy = float32 y - r + 0.5f
+// ─── Canvas 2D interop (raw JS via Emit — front-end is Fable-only) ──────
+// The 2D context is passed around as `obj`.
 
-            if dx * dx + dy * dy <= r * r then
-                data.[y * diam + x] <- Color.White
+[<Emit("$0.fillStyle = $1")>]
+let private setFill (ctx: obj) (c: string) : unit = jsNative
+[<Emit("$0.strokeStyle = $1")>]
+let private setStroke (ctx: obj) (c: string) : unit = jsNative
+[<Emit("$0.lineWidth = $1")>]
+let private setLineWidth (ctx: obj) (w: float) : unit = jsNative
+[<Emit("$0.fillRect($1, $2, $3, $4)")>]
+let private fillRectJs (ctx: obj) (x: float) (y: float) (w: float) (h: float) : unit = jsNative
+[<Emit("$0.beginPath()")>]
+let private beginPath (ctx: obj) : unit = jsNative
+[<Emit("$0.moveTo($1, $2)")>]
+let private moveTo (ctx: obj) (x: float) (y: float) : unit = jsNative
+[<Emit("$0.lineTo($1, $2)")>]
+let private lineTo (ctx: obj) (x: float) (y: float) : unit = jsNative
+[<Emit("$0.stroke()")>]
+let private strokePath (ctx: obj) : unit = jsNative
+[<Emit("$0.fill()")>]
+let private fillPath (ctx: obj) : unit = jsNative
+[<Emit("$0.ellipse($1, $2, $3, $4, 0, 0, 6.283185307179586)")>]
+let private ellipseJs (ctx: obj) (cx: float) (cy: float) (rx: float) (ry: float) : unit = jsNative
+[<Emit("$0.setLineDash($1)")>]
+let private setLineDash (ctx: obj) (segments: float array) : unit = jsNative
+[<Emit("$0.lineCap = $1")>]
+let private setLineCap (ctx: obj) (cap: string) : unit = jsNative
 
-    circleTexture <- new Texture2D(device, diam, diam)
-    circleTexture.SetData(data)
-
-/// Dispose textures. Call at UnloadContent.
-let disposeTextures () =
-    if pixelTexture <> null then
-        pixelTexture.Dispose()
-        pixelTexture <- null
-
-    if circleTexture <> null then
-        circleTexture.Dispose()
-        circleTexture <- null
-
-// ─── Filled Rectangle ─────────────────────────────────────────────────
+// ─── Filled Rectangle ───────────────────────────────────────────────────
 
 /// Draw a filled rectangle.
-let fillRect (sb: SpriteBatch) (x: float32) (y: float32) (w: float32) (h: float32) (color: Color) =
-    sb.Draw(
-        pixelTexture,
-        Rectangle(int x, int y, int (ceil w), int (ceil h)),
-        color
-    )
+let fillRect (ctx: obj) (x: float) (y: float) (w: float) (h: float) (color: Color) =
+    setFill ctx color.Css
+    fillRectJs ctx x y w h
 
 // ─── Draw Line ────────────────────────────────────────────────────────
 
 /// Draw a line between two points with given thickness and color.
-let drawLine (sb: SpriteBatch) (x1: float32) (y1: float32) (x2: float32) (y2: float32) (thickness: float32) (color: Color) =
-    let dx = x2 - x1
-    let dy = y2 - y1
-    let length = sqrt (dx * dx + dy * dy)
-
-    if length > 0.001f then
-        let angle = atan2 dy dx
-
-        sb.Draw(
-            pixelTexture,
-            Vector2(x1, y1),
-            System.Nullable(),
-            color,
-            angle,
-            Vector2(0.0f, 0.5f),
-            Vector2(length, thickness),
-            SpriteEffects.None,
-            0.0f
-        )
+let drawLine (ctx: obj) (x1: float) (y1: float) (x2: float) (y2: float) (thickness: float) (color: Color) =
+    setStroke ctx color.Css
+    setLineWidth ctx (max 0.5 thickness)
+    setLineCap ctx "butt"
+    beginPath ctx
+    moveTo ctx x1 y1
+    lineTo ctx x2 y2
+    strokePath ctx
 
 // ─── Draw Rectangle Outline ──────────────────────────────────────────
 
-/// Draw a rectangle outline.
-let drawRect (sb: SpriteBatch) (x: float32) (y: float32) (w: float32) (h: float32) (thickness: float32) (color: Color) =
-    // Top
-    fillRect sb x y w thickness color
-    // Bottom
-    fillRect sb x (y + h - thickness) w thickness color
-    // Left
-    fillRect sb x y thickness h color
-    // Right
-    fillRect sb (x + w - thickness) y thickness h color
+/// Draw a rectangle outline by filling its four edge bars (matches the
+/// MonoGame implementation so corners join the same way).
+let drawRect (ctx: obj) (x: float) (y: float) (w: float) (h: float) (thickness: float) (color: Color) =
+    fillRect ctx x y w thickness color                       // top
+    fillRect ctx x (y + h - thickness) w thickness color     // bottom
+    fillRect ctx x y thickness h color                       // left
+    fillRect ctx (x + w - thickness) y thickness h color     // right
 
 // ─── Filled Ellipse ───────────────────────────────────────────────────
 
-/// Draw a filled ellipse (uses pre-generated circle texture, scaled).
-let fillEllipse (sb: SpriteBatch) (cx: float32) (cy: float32) (rx: float32) (ry: float32) (color: Color) =
-    let diam = float32 circleTexture.Width
-    let scaleX = (rx * 2.0f) / diam
-    let scaleY = (ry * 2.0f) / diam
-
-    sb.Draw(
-        circleTexture,
-        Vector2(cx, cy),
-        System.Nullable(),
-        color,
-        0.0f,
-        Vector2(diam / 2.0f, diam / 2.0f),
-        Vector2(scaleX, scaleY),
-        SpriteEffects.None,
-        0.0f
-    )
+/// Draw a filled ellipse.
+let fillEllipse (ctx: obj) (cx: float) (cy: float) (rx: float) (ry: float) (color: Color) =
+    setFill ctx color.Css
+    beginPath ctx
+    ellipseJs ctx cx cy (max 0.1 rx) (max 0.1 ry)
+    fillPath ctx
 
 // ─── Draw Ellipse Outline ─────────────────────────────────────────────
 
-/// Draw an ellipse outline by drawing a filled ellipse with a cut-out interior.
-let drawEllipse (sb: SpriteBatch) (cx: float32) (cy: float32) (rx: float32) (ry: float32) (thickness: float32) (color: Color) (bgColor: Color) =
-    fillEllipse sb cx cy rx ry color
-    if thickness < rx && thickness < ry then
-        fillEllipse sb cx cy (rx - thickness) (ry - thickness) bgColor
+/// Draw an ellipse outline. (The MonoGame version faked this with a cut-out
+/// fill; canvas can stroke directly, so bgColor is accepted but unused.)
+let drawEllipse (ctx: obj) (cx: float) (cy: float) (rx: float) (ry: float) (thickness: float) (color: Color) (_bgColor: Color) =
+    setStroke ctx color.Css
+    setLineWidth ctx (max 0.5 thickness)
+    beginPath ctx
+    ellipseJs ctx cx cy (max 0.1 rx) (max 0.1 ry)
+    strokePath ctx
 
 // ─── Dashed Line ──────────────────────────────────────────────────────
 
 /// Draw a dashed line.
-let drawDashedLine (sb: SpriteBatch) (x1: float32) (y1: float32) (x2: float32) (y2: float32) (thickness: float32) (dashLen: float32) (color: Color) =
-    let dx = x2 - x1
-    let dy = y2 - y1
-    let length = sqrt (dx * dx + dy * dy)
-
-    if length > 0.001f then
-        let nx = dx / length
-        let ny = dy / length
-        let mutable t = 0.0f
-        let mutable draw = true
-
-        while t < length do
-            let segLen = min dashLen (length - t)
-
-            if draw then
-                let sx = x1 + nx * t
-                let sy = y1 + ny * t
-                let ex = x1 + nx * (t + segLen)
-                let ey = y1 + ny * (t + segLen)
-                drawLine sb sx sy ex ey thickness color
-
-            t <- t + dashLen
-            draw <- not draw
+let drawDashedLine (ctx: obj) (x1: float) (y1: float) (x2: float) (y2: float) (thickness: float) (dashLen: float) (color: Color) =
+    setLineDash ctx [| dashLen; dashLen |]
+    drawLine ctx x1 y1 x2 y2 thickness color
+    setLineDash ctx [||]
