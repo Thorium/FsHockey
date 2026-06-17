@@ -2,9 +2,12 @@
 
 A retro-style ice hockey game inspired by Solar Hockey (1990-1992). Written in F# with MonoGame (cross-platform 2D game framework).
 
+There is also available WinForms branch and FableWeb branch.
+You can try the Fable version online here: https://thorium.github.io/FsHockey/
+
 ## Requirements
 
-- .NET 8 SDK (Windows, macOS, or Linux)
+- .NET 10 SDK (Windows, macOS, or Linux)
 
 ## Build & Run
 

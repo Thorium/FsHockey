@@ -1,153 +1,13 @@
-/// Quick smoke test for HockeyDemo game logic
-/// Run with: dotnet fsi test.fsx  (from HockeyDemo directory)
+/// Smoke test for HockeyDemo game logic.
+/// Runs against the REAL Game.fs / Physics.fs (no MonoGame dependency needed),
+/// so it exercises shipped code rather than a copy.
+/// Run with: dotnet fsi test.fsx  (from the HockeyDemo directory)
 
-// ── Inline types and constants ──
+#load "Physics.fs"
+#load "Game.fs"
 
-[<Measure>]
-type px
-
-[<Measure>]
-type subpx
-
-[<Measure>]
-type tick
-
-[<Measure>]
-type sec
-
-let NumEntities = 7
-let NumPlayers = 6
-let BallIdx = 6
-let SubPixelUnit = 32.0<subpx / px>
-let FrictionRate = 1.0<subpx / tick>
-let BallMaxSpeed = 16.0<subpx / tick>
-let BallAnimFrames = 8
-let CollisionDist = 14.0<px>
-let PossessionTimerVal = 200<tick>
-let ForwardAccel = 2.0<subpx / tick>
-
-let inline clampF lo hi v = max lo (min hi v)
-
-type Entity =
-    { mutable X: float<px>
-      mutable Y: float<px>
-      mutable VelX: float<subpx / tick>
-      mutable VelY: float<subpx / tick>
-      mutable DirX: float
-      mutable DirY: float
-      mutable MaxSpeed: float<subpx / tick>
-      mutable Accel: float<subpx / tick>
-      mutable ShotPower: float<subpx / tick> }
-
-[<Struct>]
-type BallState =
-    | Free
-    | HeldBy of entityIdx: int
-
-type MiniGS =
-    { Entities: Entity array
-      mutable BallState: BallState
-      mutable PossessionTimer: int<tick>
-      mutable BallAnimFrame: int }
-
-let mkEnt x y spd accel shot dx dy : Entity =
-    { X = x
-      Y = y
-      VelX = 0.0<subpx / tick>
-      VelY = 0.0<subpx / tick>
-      DirX = dx
-      DirY = dy
-      MaxSpeed = spd
-      Accel = accel
-      ShotPower = shot }
-
-let farEnt () =
-    mkEnt 999.0<px> 999.0<px> 0.0<subpx / tick> 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
-
-/// Make a 7-entity gamestate: provide entities 0-5 + ball
-let mkGS (ents: Entity list) (ball: Entity) (bs: BallState) =
-    let padded = ents @ List.init (6 - ents.Length) (fun _ -> farEnt ())
-    let all = Array.ofList (padded @ [ ball ])
-
-    { Entities = all
-      BallState = bs
-      PossessionTimer = PossessionTimerVal
-      BallAnimFrame = BallAnimFrames }
-
-// ── Functions under test (copied from Game.fs) ──
-
-let releaseBall (gs: MiniGS) entityIdx =
-    let ent = gs.Entities[entityIdx]
-    let ball = gs.Entities[BallIdx]
-    ent.VelX <- 0.0<subpx / tick>
-    ent.VelY <- 0.0<subpx / tick>
-
-    ball.VelX <-
-        (if ent.DirX > 0.0 then ent.ShotPower
-         elif ent.DirX < 0.0 then -ent.ShotPower
-         else 0.0<subpx / tick>)
-
-    ball.VelY <-
-        (if ent.DirY > 0.0 then ent.ShotPower
-         elif ent.DirY < 0.0 then -ent.ShotPower
-         else 0.0<subpx / tick>)
-
-    gs.BallState <- Free
-    gs.BallAnimFrame <- BallAnimFrames
-
-let checkBallPickup (gs: MiniGS) =
-    match gs.BallState with
-    | Free ->
-        let ball = gs.Entities[BallIdx]
-
-        for i in 0 .. NumPlayers - 1 do
-            match gs.BallState with
-            | Free ->
-                let ent = gs.Entities[i]
-
-                if
-                    abs (float (ent.X - ball.X)) < float CollisionDist
-                    && abs (float (ent.Y - ball.Y)) < float CollisionDist
-                then
-                    gs.BallState <- HeldBy i
-                    gs.PossessionTimer <- PossessionTimerVal
-            | _ -> ()
-    | _ -> ()
-
-let clampVel (ent: Entity) =
-    ent.VelX <- clampF -ent.MaxSpeed ent.MaxSpeed ent.VelX
-    ent.VelY <- clampF -ent.MaxSpeed ent.MaxSpeed ent.VelY
-
-let applyHumanInput (gs: MiniGS) idx left right up down fire =
-    let ent = gs.Entities[idx]
-    let mutable dx = 0.0
-    let mutable dy = 0.0
-
-    if left then
-        ent.VelX <- ent.VelX - ent.Accel
-        dx <- -1.0
-
-    if right then
-        ent.VelX <- ent.VelX + ent.Accel
-        dx <- 1.0
-
-    if up then
-        ent.VelY <- ent.VelY - ent.Accel
-        dy <- -1.0
-
-    if down then
-        ent.VelY <- ent.VelY + ent.Accel
-        dy <- 1.0
-
-    clampVel ent
-
-    if dx <> 0.0 || dy <> 0.0 then
-        ent.DirX <- dx
-        ent.DirY <- dy
-
-    match gs.BallState with
-    | HeldBy owner when owner = idx && fire -> releaseBall gs idx
-    | _ -> ()
+open HockeyDemo.Physics
+open HockeyDemo.Game
 
 // ── Test harness ──
 
@@ -162,207 +22,183 @@ let check (name: string) cond =
         failed <- failed + 1
         printfn "  FAIL: %s" name
 
+let approx (a: float) (b: float) = abs (a - b) < 1e-6
+
+/// Fresh 3v3 game state with player 0 holding the ball, facing (dirX, dirY).
+let mkHolding dirX dirY (shotPower: float<subpx / tick>) =
+    let gs = createGameState ()
+    let p = gs.Entities.[0]
+    p.X <- 100.0<px>
+    p.Y <- 80.0<px>
+    p.DirX <- dirX
+    p.DirY <- dirY
+    p.ShotPower <- shotPower
+    gs.BallState <- HeldBy 0
+    gs
+
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 1: releaseBall — shoot right ──"
+printfn "── Test 1: releaseBall — full-power shot right ──"
 
-let t1p =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
-
-let t1b =
-    mkEnt 100.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
-
-let t1gs = mkGS [ t1p ] t1b (HeldBy 0)
-releaseBall t1gs 0
-check "ball VelX = +38" (t1b.VelX = 38.0<subpx / tick>)
-check "ball VelY = 0" (t1b.VelY = 0.0<subpx / tick>)
-check "kicker VelX = 0" (t1p.VelX = 0.0<subpx / tick>)
+let t1gs = mkHolding 1.0 0.0 38.0<subpx / tick>
+releaseBall t1gs 0 1.0
+let t1ball = t1gs.Entities.[t1gs.BallIdx]
+check "ball VelX = +38" (approx (float t1ball.VelX) 38.0)
+check "ball VelY = 0" (approx (float t1ball.VelY) 0.0)
+check "kicker VelX = 0" (approx (float t1gs.Entities.[0].VelX) 0.0)
 check "state is Free" (t1gs.BallState = Free)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 2: releaseBall — shoot left ──"
+printfn "── Test 2: releaseBall — diagonal shot ──"
 
-let t2p =
-    mkEnt 200.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 48.0<subpx / tick> (-1.0) 0.0
-
-let t2b =
-    mkEnt 200.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
-
-let t2gs = mkGS [ farEnt (); farEnt (); farEnt (); t2p ] t2b (HeldBy 3)
-releaseBall t2gs 3
-check "ball VelX = -48" (t2b.VelX = -48.0<subpx / tick>)
-check "ball VelY = 0" (t2b.VelY = 0.0<subpx / tick>)
+let t2gs = mkHolding 1.0 -1.0 48.0<subpx / tick>
+releaseBall t2gs 0 1.0
+let t2ball = t2gs.Entities.[t2gs.BallIdx]
+check "ball VelX = +48" (approx (float t2ball.VelX) 48.0)
+check "ball VelY = -48" (approx (float t2ball.VelY) -48.0)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 3: releaseBall — diagonal ──"
+printfn "── Test 3: releaseBall — pass fraction is weaker than a shot ──"
 
-let t3p =
-    mkEnt 150.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 48.0<subpx / tick> 1.0 (-1.0)
-
-let t3b =
-    mkEnt 150.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
-
-let t3gs = mkGS [ t3p ] t3b (HeldBy 0)
-releaseBall t3gs 0
-check "ball VelX = +48" (t3b.VelX = 48.0<subpx / tick>)
-check "ball VelY = -48" (t3b.VelY = -48.0<subpx / tick>)
+let t3gs = mkHolding 1.0 0.0 38.0<subpx / tick>
+releaseBall t3gs 0 PassPowerFraction
+let t3ball = t3gs.Entities.[t3gs.BallIdx]
+check "pass VelX = 38 * PassPowerFraction" (approx (float t3ball.VelX) (38.0 * PassPowerFraction))
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 4: releaseBall — direction (0,0) → zero velocity ──"
+printfn "── Test 4: charge mechanic — full hold shoots at full power ──"
 
-let t4p =
-    mkEnt 150.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 48.0<subpx / tick> 0.0 0.0
+let t4gs = mkHolding 1.0 0.0 38.0<subpx / tick>
+let mutable t4hold = 0<tick>
 
-let t4b =
-    mkEnt 150.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
+for _ in 1 .. int ChargeTicksForFull do
+    applyHumanInput t4gs 0 false false false false true &t4hold
 
-let t4gs = mkGS [ t4p ] t4b (HeldBy 0)
-releaseBall t4gs 0
-check "ball VelX = 0" (t4b.VelX = 0.0<subpx / tick>)
-check "ball VelY = 0" (t4b.VelY = 0.0<subpx / tick>)
-printfn "  NOTE: Dir(0,0) produces zero-velocity shot — ball drops in place!"
-
-// ══════════════════════════════════════════════════════════════════════
-printfn "── Test 5: applyHumanInput — fire shoots when holding ball ──"
-
-let t5p =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
-
-let t5b =
-    mkEnt 100.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
-
-let t5gs = mkGS [ t5p ] t5b (HeldBy 0)
-applyHumanInput t5gs 0 false true false false true
-check "ball is Free" (t5gs.BallState = Free)
-check "ball VelX = +38" (t5b.VelX = 38.0<subpx / tick>)
+check "held the full charge duration" (t4hold = ChargeTicksForFull)
+// Release (fire key up) fires the shot
+applyHumanInput t4gs 0 false false false false false &t4hold
+let t4ball = t4gs.Entities.[t4gs.BallIdx]
+check "full charge shoots at full power" (approx (float t4ball.VelX) 38.0)
+check "hold counter reset after release" (t4hold = 0<tick>)
+check "ball is Free after shot" (t4gs.BallState = Free)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 6: fire but different player holds ball ──"
+printfn "── Test 5: charge mechanic — quick tap is a weak pass ──"
 
-let t6p =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
+let t5gs = mkHolding 1.0 0.0 38.0<subpx / tick>
+let mutable t5hold = 0<tick>
+applyHumanInput t5gs 0 false false false false true &t5hold // 1 tick hold
+applyHumanInput t5gs 0 false false false false false &t5hold // release
+let t5ball = t5gs.Entities.[t5gs.BallIdx]
 
-let t6b =
-    mkEnt 100.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
+let t5expected =
+    38.0
+    * (PassPowerFraction + (1.0 - PassPowerFraction) * (1.0 / float (int ChargeTicksForFull)))
 
-let t6gs = mkGS [ t6p ] t6b (HeldBy 1)
-applyHumanInput t6gs 0 false false false false true
+check "quick tap = weak shot" (approx (float t5ball.VelX) t5expected)
+check "quick tap weaker than full power" (float t5ball.VelX < 38.0)
+
+// ══════════════════════════════════════════════════════════════════════
+printfn "── Test 6: fire while a teammate holds the ball does nothing ──"
+
+let t6gs = createGameState ()
+t6gs.BallState <- HeldBy 1
+let mutable t6hold = 0<tick>
+applyHumanInput t6gs 0 false false false false true &t6hold
 check "ball still HeldBy 1" (t6gs.BallState = HeldBy 1)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 7: checkBallPickup — free ball near player ──"
+printfn "── Test 7: checkBallPickup — free ball within CollisionDist ──"
 
-let t7p =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
-
-let t7b =
-    mkEnt 105.0<px> 82.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
-
-let t7gs = mkGS [ t7p ] t7b Free
+let t7gs = createGameState ()
+t7gs.Entities.[0].X <- 100.0<px>
+t7gs.Entities.[0].Y <- 80.0<px>
+let t7ball = t7gs.Entities.[t7gs.BallIdx]
+t7ball.X <- 105.0<px> // dx = 5 < 8
+t7ball.Y <- 82.0<px> // dy = 2 < 8
+t7gs.BallState <- Free
 checkBallPickup t7gs
 check "ball picked up by player 0" (t7gs.BallState = HeldBy 0)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 8: checkBallPickup — held ball cannot be stolen ──"
+printfn "── Test 8: checkBallPickup — just out of reach stays free ──"
 
-let t8p0 =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
+let t8gs = createGameState ()
 
-let t8p1 =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> (-1.0) 0.0
+for i in 0 .. t8gs.NumPlayers - 1 do
+    t8gs.Entities.[i].X <- 0.0<px>
+    t8gs.Entities.[i].Y <- 0.0<px>
 
-let t8b =
-    mkEnt 100.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
-
-let t8gs = mkGS [ t8p0; t8p1 ] t8b (HeldBy 0)
+t8gs.Entities.[0].X <- 100.0<px>
+t8gs.Entities.[0].Y <- 80.0<px>
+let t8ball = t8gs.Entities.[t8gs.BallIdx]
+t8ball.X <- 110.0<px> // dx = 10, not < 8
+t8ball.Y <- 80.0<px>
+t8gs.BallState <- Free
 checkBallPickup t8gs
-check "still HeldBy 0 (no steal)" (t8gs.BallState = HeldBy 0)
+check "no pickup just out of reach" (t8gs.BallState = Free)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 9: shoot-then-pickup cycle ──"
+printfn "── Test 9: checkBallPickup — held ball cannot be stolen ──"
 
-let t9p =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
-
-let t9b =
-    mkEnt 100.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
-
-let t9gs = mkGS [ t9p ] t9b (HeldBy 0)
-releaseBall t9gs 0
-check "after shoot: Free" (t9gs.BallState = Free)
-t9b.X <- 200.0<px>
+let t9gs = createGameState ()
+t9gs.Entities.[1].X <- 100.0<px>
+t9gs.Entities.[1].Y <- 80.0<px>
+let t9ball = t9gs.Entities.[t9gs.BallIdx]
+t9ball.X <- 100.0<px>
+t9ball.Y <- 80.0<px>
+t9gs.BallState <- HeldBy 0
 checkBallPickup t9gs
-check "ball far: still Free" (t9gs.BallState = Free)
-t9b.X <- 103.0<px>
-t9b.Y <- 82.0<px>
-checkBallPickup t9gs
-check "ball near: picked up" (t9gs.BallState = HeldBy 0)
+check "still HeldBy 0 (no steal)" (t9gs.BallState = HeldBy 0)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 10: fire without pressing direction uses initial Dir ──"
+printfn "── Test 10: findNearestToBall picks the closest skater ──"
 
-let t10p =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
+let t10gs = createGameState ()
 
-let t10b =
-    mkEnt 100.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
+for i in 0 .. t10gs.NumPlayers - 1 do
+    t10gs.Entities.[i].X <- float (200 + i) * 1.0<px>
+    t10gs.Entities.[i].Y <- 80.0<px>
 
-let t10gs = mkGS [ t10p ] t10b (HeldBy 0)
-applyHumanInput t10gs 0 false false false false true // fire only, no direction keys
-check "shoots right (initial DirX=1)" (t10b.VelX = 38.0<subpx / tick>)
-check "no Y component" (t10b.VelY = 0.0<subpx / tick>)
-
-// ══════════════════════════════════════════════════════════════════════
-printfn "── Test 11: direction updated same tick as fire ──"
-
-let t11p =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
-
-let t11b =
-    mkEnt 100.0<px> 80.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
-
-let t11gs = mkGS [ t11p ] t11b (HeldBy 0)
-applyHumanInput t11gs 0 true false true false true // left + up + fire
-check "shoots left" (t11b.VelX = -38.0<subpx / tick>)
-check "shoots up" (t11b.VelY = -38.0<subpx / tick>)
+t10gs.Entities.[2].X <- 100.0<px> // closest to centred ball
+let t10ball = t10gs.Entities.[t10gs.BallIdx]
+t10ball.X <- 100.0<px>
+t10ball.Y <- 80.0<px>
+check "nearest team-1 player is index 2" (findNearestToBall t10gs 0 (t10gs.PlayersPerTeam - 1) = 2)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 12: active player != holder — can't shoot ──"
+printfn "── Test 11: generateSchedule produces a valid round-robin ──"
 
-let t12p0 =
-    mkEnt 100.0<px> 80.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
+let sched = generateSchedule NumTeams
+check "N-1 rounds" (sched.Length = NumTeams - 1)
+check "N/2 matches per round" (sched |> Array.forall (fun r -> r.Length = NumTeams / 2))
 
-let t12p2 =
-    mkEnt 50.0<px> 50.0<px> 32.0<subpx / tick> ForwardAccel 38.0<subpx / tick> 1.0 0.0
+let eachTeamOncePerRound =
+    sched
+    |> Array.forall (fun round ->
+        let seen = round |> Array.collect (fun (a, b) -> [| a; b |]) |> Array.sort
+        seen = [| 0 .. NumTeams - 1 |])
 
-let t12b =
-    mkEnt 50.0<px> 50.0<px> BallMaxSpeed 0.0<subpx / tick> 0.0<subpx / tick> 0.0 0.0
+check "each team plays exactly once per round" eachTeamOncePerRound
 
-let t12gs = mkGS [ t12p0; farEnt (); t12p2 ] t12b (HeldBy 2)
-applyHumanInput t12gs 0 false false false false true
-check "ball still HeldBy 2" (t12gs.BallState = HeldBy 2)
-printfn "  NOTE: Human controls nearest-to-ball, but teammate may hold the ball!"
+let allPairs =
+    sched
+    |> Array.collect id
+    |> Array.map (fun (a, b) -> if a < b then (a, b) else (b, a))
+
+let expectedPairs = NumTeams * (NumTeams - 1) / 2
+check $"{expectedPairs} total matchups" (allPairs.Length = expectedPairs)
+check "every pairing is unique" ((Array.distinct allPairs).Length = expectedPairs)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 13: ball travel distance with friction ──"
-let fieldWidth = 286.0
+printfn "── Test 12: simulateCpuGoals stays within 0..10 ──"
 
-let travelTest (power: int) =
-    let mutable pos = 0.0
-    let mutable vel = float power
-    let mutable ticks = 0
+let rng = System.Random(12345)
 
-    while pos < fieldWidth && vel > 0.0 do
-        pos <- pos + vel / 32.0
-        vel <- vel - 1.0
-        ticks <- ticks + 1
+let goalsInRange =
+    [ for _ in 1..1000 -> simulateCpuGoals rng 0.95 ]
+    |> List.forall (fun g -> g >= 0 && g <= 10)
 
-    printfn "  power=%2d: %.0f px in %d ticks (%.1fs @60Hz)" power pos ticks (float ticks / 60.0)
-
-travelTest 16
-travelTest 32
-travelTest 38
-travelTest 48
-travelTest 64
+check "CPU goals clamped to 0..10" goalsInRange
 
 // ══════════════════════════════════════════════════════════════════════
 printfn ""
@@ -375,3 +211,5 @@ else
     printfn "  All tests passed!"
 
 printfn "════════════════════════════════════════════════════════════════"
+
+exit failed

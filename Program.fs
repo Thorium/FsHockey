@@ -293,20 +293,7 @@ type HockeyGame() as this =
                 app.HardMode
                 app.FivePlayerMode
 
-        | Playing ->
-            renderFrame
-                spriteBatch
-                gs
-                w
-                h
-                false
-                app.SelectedTeam1
-                app.SelectedTeam2
-                app.ActiveColumn
-                false
-                app.FastHuman
-                app.HardMode
-                app.FivePlayerMode
+        | Playing -> renderFrame spriteBatch gs w h false
 
         | LeagueMatchup ->
             match app.League with
@@ -323,20 +310,7 @@ type HockeyGame() as this =
                     teamNames.[t2]
             | None -> ()
 
-        | LeaguePlaying ->
-            renderFrame
-                spriteBatch
-                gs
-                w
-                h
-                false
-                app.SelectedTeam1
-                app.SelectedTeam2
-                app.ActiveColumn
-                true
-                app.FastHuman
-                app.HardMode
-                app.FivePlayerMode
+        | LeaguePlaying -> renderFrame spriteBatch gs w h true
 
         | LeagueStandings ->
             app.League

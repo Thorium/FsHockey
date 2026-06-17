@@ -140,13 +140,11 @@ let TrailMarkLifetime = 90<tick>
 // ─── Possession ────────────────────────────────────────────────────────
 
 let PossessionTimer = 200<tick>
-let StalemateWarn = 400<tick>
 let StalemateFaceoff = 500<tick>
 
 // ─── AI Constants ──────────────────────────────────────────────────────
 
 let AiShootZoneX = 69.0<px>
-let AiDefenderShift = 28.0<px>
 let AiRandomShot = 8.0
 
 /// Minimum distance before same-team players start repelling each other
@@ -160,8 +158,8 @@ let AiShootCheckpoints =
 
 // ─── Game Timing ───────────────────────────────────────────────────────
 // Game loop runs at CGA vertical retrace rate (~60 Hz).
-// tick_countdown=2 halves the CLOCK (1 clock-second every 2 game ticks).
 // We render at 30 FPS with 2 physics ticks per frame -> ~60 Hz effective.
+// The game clock advances 1 clock-second every ClockTicksPerSec ticks.
 
 [<Literal>]
 let GameFps = 30
@@ -172,7 +170,8 @@ let PhysicsTicksPerFrame = 2
 [<Literal>]
 let PeriodMinutes = 1
 
-/// Clock increments every 2 game ticks at ~60 Hz -> 30 clock-seconds/real-second.
+/// Clock advances 1 clock-second every 30 game ticks; at ~60 Hz that is
+/// 2 clock-seconds per real second (a 60-clock-second period lasts ~30 real seconds).
 let ClockTicksPerSec = 30<tick / sec>
 
 // ─── Periods ──────────────────────────────────────────────────────────
@@ -209,7 +208,7 @@ let team1HomeY = [| 80.0<px>; 50.0<px>; 110.0<px> |]
 let team2HomeX = [| 200.0<px>; 240.0<px>; 120.0<px> |]
 let team2HomeY = [| 80.0<px>; 50.0<px>; 110.0<px> |]
 
-// Shifted positions when team has ball (offset by AiDefenderShift toward opponent goal)
+// Shifted positions when team has ball (offset toward opponent goal)
 let team1HomeXAttack = [| 72.0<px>; 32.0<px>; 152.0<px> |]
 let team2HomeXAttack = [| 228.0<px>; 268.0<px>; 148.0<px> |]
 
