@@ -119,9 +119,6 @@ type GameState =
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
-let inline private zero<[<Measure>] 'u> =
-    LanguagePrimitives.FloatWithMeasure<'u> 0.0
-
 let private zeroVel = 0.0<subpx / tick>
 
 /// Determine the role of a local player index in the current mode
@@ -921,10 +918,7 @@ let gameTick (gs: GameState) =
 /// Uses the standard circle method: fix team 0, rotate the rest.
 let generateSchedule (numTeams: int) =
     let n = numTeams
-    // teams list excluding the fixed pivot (team index 0 in rotation, not team-idx 0)
-    let rotating = [| 0 .. n - 1 |]
-    // We use indices 0..n-1 directly; fix index 0 as pivot
-    let rot = Array.init (n - 1) id // rotation slots: 1 .. n-1
+    // Standard circle method: team index 0 is the fixed pivot, the rest rotate.
     let rounds = Array.init (n - 1) (fun _ -> Array.zeroCreate<int * int> (n / 2))
 
     for r in 0 .. n - 2 do
@@ -933,7 +927,7 @@ let generateSchedule (numTeams: int) =
         arrangement.[0] <- 0
 
         for i in 0 .. n - 2 do
-            arrangement.[i + 1] <- rot.[(i + r) % (n - 1)] + 1
+            arrangement.[i + 1] <- (i + r) % (n - 1) + 1
 
         // Pair first with last, second with second-to-last, etc.
         for m in 0 .. (n / 2) - 1 do
@@ -1001,7 +995,7 @@ let simulateCpuGoals (rng: Random) (strength: float) =
 let simulateCpuRound (league: LeagueState) (roundIdx: int) =
     let round = league.Schedule.[roundIdx]
 
-    for (t1, t2) in round do
+    for t1, t2 in round do
         // Skip the matchup involving the human team (already played live)
         if t1 <> league.HumanTeam && t2 <> league.HumanTeam then
             let goals1 = simulateCpuGoals league.Rng teamStrength.[t1]
@@ -1010,7 +1004,8 @@ let simulateCpuRound (league: LeagueState) (roundIdx: int) =
 
 /// Sort standings by points descending, goal difference as tiebreak
 let getSortedStandings (league: LeagueState) =
-    [| for i in 0 .. NumTeams - 1 -> (i, league.Stats.[i]) |]
+    league.Stats
+    |> Array.indexed
     |> Array.sortByDescending (fun (_, s) -> s.Points, s.GoalsFor - s.GoalsAgainst)
 
 /// Advance to next round; returns true if league is complete
@@ -1025,7 +1020,8 @@ let advanceRound (league: LeagueState) =
 /// Get the human team's matchup for the current round (human always returned as t1)
 let currentMatchup (league: LeagueState) =
     let round = league.Schedule.[league.CurrentRound]
-    let (a, b) =
-        round
-        |> Array.find (fun (t1, t2) -> t1 = league.HumanTeam || t2 = league.HumanTeam)
-    if a = league.HumanTeam then (a, b) else (b, a)
+    match round |> Array.tryFind (fun (t1, t2) -> t1 = league.HumanTeam || t2 = league.HumanTeam) with
+    | Some(a, b) -> if a = league.HumanTeam then (a, b) else (b, a)
+    // Unreachable with an even team count (every team plays each round); fall back
+    // to the first matchup rather than throwing if the schedule is ever malformed.
+    | None -> round.[0]

@@ -1,11 +1,13 @@
 # The FS Hockey League
 
 A retro-style ice hockey game for Windows, inspired by Solar Hockey (1990-1992). 
-Written in F# with Windows Forms, but there is also a MonoGame branch available.
+Written in F# with Windows Forms, but there is also a MonoGame branch, and FableWeb branch available.
+
+You can try the Fable version online here: https://thorium.github.io/FsHockey/
 
 ## Requirements
 
-- .NET 9 SDK (Windows)
+- .NET 10 SDK (Windows)
 
 ## Build & Run
 

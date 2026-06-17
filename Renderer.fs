@@ -141,7 +141,7 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
         else
             0.0f
 
-    let savedTransform = g.Transform.Clone()
+    use savedTransform = g.Transform.Clone()
     g.TranslateTransform(px, py)
     g.RotateTransform(angleDeg)
     let px = 0.0f
@@ -265,9 +265,8 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
     let bladeEndY = endY - 0.8f * uy
     g.DrawLine(bladePen, endX, endY, bladeEndX, bladeEndY)
 
-    // Restore transform
+    // Restore transform (savedTransform is disposed at function scope exit)
     g.Transform <- savedTransform
-    savedTransform.Dispose()
 
     // ─── Active player marker: small downward-pointing arrow (no circle) ──────
     if isActive then
@@ -282,7 +281,7 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
 
 // ─── Draw Puck ────────────────────────────────────────────────────────
 
-let drawPuck (g: Graphics) sx sy (ball: Entity) =
+let drawPuck (g: Graphics) sx sy (ball: Entity) (animFrame: int) =
     let px = gameX sx ball.X
     let py = gameY sy ball.Y
     let r = 2.5f * sx
@@ -290,9 +289,14 @@ let drawPuck (g: Graphics) sx sy (ball: Entity) =
     use brush = new SolidBrush(puckColor)
     g.FillEllipse(brush, px - r, py - r, r * 2.0f, r * 2.0f)
 
+    // Spinning highlight: orbits the puck center once per animation cycle
+    let phase = float32 animFrame / float32 (BallAnimFrames * 2) * (2.0f * float32 System.Math.PI)
     use hlBrush = new SolidBrush(puckHighlight)
     let hr = r * 0.4f
-    g.FillEllipse(hlBrush, px - hr, py - hr - 0.5f, hr * 2.0f, hr * 2.0f)
+    let orbit = r * 0.35f
+    let hx = px + cos phase * orbit
+    let hy = py - 0.5f + sin phase * orbit
+    g.FillEllipse(hlBrush, hx - hr, hy - hr, hr * 2.0f, hr * 2.0f)
 
     use pen = new Pen(Color.Black, 1.0f)
     g.DrawEllipse(pen, px - r, py - r, r * 2.0f, r * 2.0f)
@@ -341,10 +345,7 @@ let drawHud (g: Graphics) (gs: GameState) sx sy rinkBottom width =
 // ─── Goal Flash Overlay ───────────────────────────────────────────────
 
 let drawGoalFlash (g: Graphics) (gs: GameState) width height =
-    if gs.GoalFlashTimer <= 0<tick> then
-        ()
-    else
-
+    if gs.GoalFlashTimer > 0<tick> then
         let alpha = if int gs.GoalFlashTimer % 10 < 5 then 80 else 30
         use overlayBrush = new SolidBrush(Color.FromArgb(alpha, goalFlashColor))
         g.FillRectangle(overlayBrush, 0.0f, 0.0f, width, height)
@@ -597,100 +598,83 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
 
 // ─── Main Render ──────────────────────────────────────────────────────
 
-let renderFrame
-    (g: Graphics)
-    (gs: GameState)
-    width
-    height
-    menuMode
-    selTeam1
-    selTeam2
-    activeCol
-    leagueMode
-    fastHuman
-    hardMode
-    fivePlayer
-    =
+let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
     g.SmoothingMode <- SmoothingMode.AntiAlias
     g.TextRenderingHint <- Text.TextRenderingHint.ClearTypeGridFit
 
     let w = float32 width
     let h = float32 height
 
-    if menuMode then
-        drawMenu g w h selTeam1 selTeam2 activeCol fastHuman hardMode fivePlayer
-    else
+    let rinkH = OrigH + HudHeight
+    let sx = w / OrigW
+    let sy = h / rinkH
 
-        let rinkH = OrigH + HudHeight
-        let sx = w / OrigW
-        let sy = h / rinkH
+    use bgBrush = new SolidBrush(Color.FromArgb(30, 30, 50))
+    g.FillRectangle(bgBrush, 0.0f, 0.0f, w, h)
 
-        use bgBrush = new SolidBrush(Color.FromArgb(30, 30, 50))
-        g.FillRectangle(bgBrush, 0.0f, 0.0f, w, h)
+    drawRink g sx sy team1Color team2Color
 
-        drawRink g sx sy team1Color team2Color
+    // Ice trail marks (drawn on ice, under players and puck)
+    for i in 0 .. gs.TrailMarkCount - 1 do
+        let mark = gs.TrailMarks.[i]
+        if mark.Life > 0<tick> then
+            let alpha = int (float (int mark.Life) / float (int TrailMarkLifetime) * 180.0) + 40
+            let alpha = min 220 alpha
+            use trailBrush = new SolidBrush(Color.FromArgb(alpha, 255, 255, 255))
+            let mx = gameX sx mark.X
+            let my = gameY sy mark.Y
+            let r = 1.2f * sx
+            g.FillEllipse(trailBrush, mx - r, my - r, r * 2.0f, r * 2.0f)
 
-        // Ice trail marks (drawn on ice, under players and puck)
-        for i in 0 .. gs.TrailMarkCount - 1 do
-            let mark = gs.TrailMarks.[i]
-            if mark.Life > 0<tick> then
-                let alpha = int (float (int mark.Life) / float (int TrailMarkLifetime) * 180.0) + 40
-                let alpha = min 220 alpha
-                use trailBrush = new SolidBrush(Color.FromArgb(alpha, 255, 255, 255))
-                let mx = gameX sx mark.X
-                let my = gameY sy mark.Y
-                let r = 1.2f * sx
-                g.FillEllipse(trailBrush, mx - r, my - r, r * 2.0f, r * 2.0f)
+    let ppt = gs.PlayersPerTeam
+    let t2s = gs.Team2Start
 
-        let ppt = gs.PlayersPerTeam
-        let t2s = gs.Team2Start
+    // Helmet colors: human team = gold, CPU = black
+    let t1Helmet = if gs.Team1Idx = 0 then helmetGold else helmetBlack
+    let t2Helmet = if gs.Team2Idx = 0 then helmetGold else helmetBlack
 
-        // Helmet colors: human team = gold, CPU = black
-        let t1Helmet = if gs.Team1Idx = 0 then helmetGold else helmetBlack
-        let t2Helmet = if gs.Team2Idx = 0 then helmetGold else helmetBlack
+    // Puck drawn UNDER players so skaters appear on top of it
+    drawPuck g sx sy gs.Entities.[gs.BallIdx] gs.BallAnimFrame
 
-        // Puck drawn UNDER players so skaters appear on top of it
-        drawPuck g sx sy gs.Entities.[gs.BallIdx]
+    // Team 1 players
+    for i in 0 .. ppt - 1 do
+        let isGoalie = gs.FivePlayerMode && i = 0
 
-        // Team 1 players
-        for i in 0 .. ppt - 1 do
-            let isGoalie = gs.FivePlayerMode && i = 0
+        drawRetroPlayer
+            g
+            sx
+            sy
+            gs.Entities.[i]
+            team1Color
+            t1Helmet
+            (i = gs.ActivePlayer1)
+            gs.StickAnimTimers.[i]
+            isGoalie
+            (int gs.GameTick)
 
-            drawRetroPlayer
-                g
-                sx
-                sy
-                gs.Entities.[i]
-                team1Color
-                t1Helmet
-                (i = gs.ActivePlayer1)
-                gs.StickAnimTimers.[i]
-                isGoalie
-                (int gs.GameTick)
+    // Team 2 players
+    for i in 0 .. ppt - 1 do
+        let ei = t2s + i
+        let isGoalie = gs.FivePlayerMode && i = 0
 
-        // Team 2 players
-        for i in 0 .. ppt - 1 do
-            let ei = t2s + i
-            let isGoalie = gs.FivePlayerMode && i = 0
+        drawRetroPlayer
+            g
+            sx
+            sy
+            gs.Entities.[ei]
+            team2Color
+            t2Helmet
+            (ei = gs.ActivePlayer2)
+            gs.StickAnimTimers.[ei]
+            isGoalie
+            (int gs.GameTick)
 
-            drawRetroPlayer
-                g
-                sx
-                sy
-                gs.Entities.[ei]
-                team2Color
-                t2Helmet
-                (ei = gs.ActivePlayer2)
-                gs.StickAnimTimers.[ei]
-                isGoalie
-                (int gs.GameTick)
+    // HUD
+    let rinkBottom = gameY sy FieldBottom + 4.0f * sy
+    drawHud g gs sx sy rinkBottom w
 
-        // HUD
-        let rinkBottom = gameY sy FieldBottom + 4.0f * sy
-        drawHud g gs sx sy rinkBottom w
+    // Overlays
+    drawGoalFlash g gs w h
 
-        // Overlays
-        drawGoalFlash g gs w h
-
-        if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then
-            drawGameOver g gs w h leagueMode
+    if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then
+        drawGameOver g gs w h leagueMode

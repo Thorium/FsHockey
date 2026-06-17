@@ -206,10 +206,7 @@ type HockeyForm() as this =
         let w = panel.ClientSize.Width
         let h = panel.ClientSize.Height
 
-        if w <= 0 || h <= 0 then
-            ()
-        else
-
+        if w > 0 && h > 0 then
             use backBuffer = new Bitmap(w, h)
             use g = Graphics.FromImage backBuffer
             g.SmoothingMode <- Drawing2D.SmoothingMode.AntiAlias
@@ -231,20 +228,7 @@ type HockeyForm() as this =
                     app.HardMode
                     app.FivePlayerMode
 
-            | Playing ->
-                renderFrame
-                    g
-                    gs
-                    w
-                    h
-                    false
-                    app.SelectedTeam1
-                    app.SelectedTeam2
-                    app.ActiveColumn
-                    false
-                    app.FastHuman
-                    app.HardMode
-                    app.FivePlayerMode
+            | Playing -> renderFrame g gs w h false
 
             | LeagueMatchup ->
                 match app.League with
@@ -261,20 +245,7 @@ type HockeyForm() as this =
                         teamNames.[t2]
                 | None -> ()
 
-            | LeaguePlaying ->
-                renderFrame
-                    g
-                    gs
-                    w
-                    h
-                    false
-                    app.SelectedTeam1
-                    app.SelectedTeam2
-                    app.ActiveColumn
-                    true
-                    app.FastHuman
-                    app.HardMode
-                    app.FivePlayerMode
+            | LeaguePlaying -> renderFrame g gs w h true
 
             | LeagueStandings ->
                 app.League
