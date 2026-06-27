@@ -124,23 +124,23 @@ let inline matchOver (gs: GameState) =
 /// Apply player 1 directional + fire keys (Arrow keys + RShift/Enter)
 let private mapPlayer1Keys (gs: GameState) key down =
     match key with
-    | Keys.Left -> gs.KeyLeft1 <- down
-    | Keys.Right -> gs.KeyRight1 <- down
-    | Keys.Up -> gs.KeyUp1 <- down
-    | Keys.Down -> gs.KeyDown1 <- down
+    | Keys.Left -> gs.Input1 <- { gs.Input1 with Left = down }
+    | Keys.Right -> gs.Input1 <- { gs.Input1 with Right = down }
+    | Keys.Up -> gs.Input1 <- { gs.Input1 with Up = down }
+    | Keys.Down -> gs.Input1 <- { gs.Input1 with Down = down }
     | Keys.RShiftKey
-    | Keys.Enter -> gs.KeyFire1 <- down
+    | Keys.Enter -> gs.Input1 <- { gs.Input1 with Fire = down }
     | _ -> ()
 
 /// Apply player 2 directional + fire keys (WASD + Space/Tab)
 let private mapPlayer2Keys (gs: GameState) key down =
     match key with
-    | Keys.A -> gs.KeyLeft2 <- down
-    | Keys.D -> gs.KeyRight2 <- down
-    | Keys.W -> gs.KeyUp2 <- down
-    | Keys.S -> gs.KeyDown2 <- down
+    | Keys.A -> gs.Input2 <- { gs.Input2 with Left = down }
+    | Keys.D -> gs.Input2 <- { gs.Input2 with Right = down }
+    | Keys.W -> gs.Input2 <- { gs.Input2 with Up = down }
+    | Keys.S -> gs.Input2 <- { gs.Input2 with Down = down }
     | Keys.Space
-    | Keys.Tab -> gs.KeyFire2 <- down
+    | Keys.Tab -> gs.Input2 <- { gs.Input2 with Fire = down }
     | _ -> ()
 
 // ─── Main Form ────────────────────────────────────────────────────────
