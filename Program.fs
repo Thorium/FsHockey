@@ -122,19 +122,21 @@ let inline matchOver (gs: GameState) =
 
 /// Apply player 1 directional + fire keys (Arrow keys + RShift/Enter)
 let private mapPlayer1Keys (gs: GameState) (ks: KeyboardState) =
-    gs.KeyLeft1 <- ks.IsKeyDown(Keys.Left)
-    gs.KeyRight1 <- ks.IsKeyDown(Keys.Right)
-    gs.KeyUp1 <- ks.IsKeyDown(Keys.Up)
-    gs.KeyDown1 <- ks.IsKeyDown(Keys.Down)
-    gs.KeyFire1 <- ks.IsKeyDown(Keys.RightShift) || ks.IsKeyDown(Keys.Enter)
+    gs.Input1 <-
+        { Left = ks.IsKeyDown(Keys.Left)
+          Right = ks.IsKeyDown(Keys.Right)
+          Up = ks.IsKeyDown(Keys.Up)
+          Down = ks.IsKeyDown(Keys.Down)
+          Fire = ks.IsKeyDown(Keys.RightShift) || ks.IsKeyDown(Keys.Enter) }
 
 /// Apply player 2 directional + fire keys (WASD + Space/Tab)
 let private mapPlayer2Keys (gs: GameState) (ks: KeyboardState) =
-    gs.KeyLeft2 <- ks.IsKeyDown(Keys.A)
-    gs.KeyRight2 <- ks.IsKeyDown(Keys.D)
-    gs.KeyUp2 <- ks.IsKeyDown(Keys.W)
-    gs.KeyDown2 <- ks.IsKeyDown(Keys.S)
-    gs.KeyFire2 <- ks.IsKeyDown(Keys.Space) || ks.IsKeyDown(Keys.Tab)
+    gs.Input2 <-
+        { Left = ks.IsKeyDown(Keys.A)
+          Right = ks.IsKeyDown(Keys.D)
+          Up = ks.IsKeyDown(Keys.W)
+          Down = ks.IsKeyDown(Keys.S)
+          Fire = ks.IsKeyDown(Keys.Space) || ks.IsKeyDown(Keys.Tab) }
 
 // ─── Main Game (MonoGame) ─────────────────────────────────────────────
 
