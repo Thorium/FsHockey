@@ -155,19 +155,21 @@ let private pressed (code: string) = keys.Contains code && not (prevKeys.Contain
 
 /// Apply player 1 directional + fire keys (Arrow keys + RShift/Enter)
 let private mapPlayer1Keys (gs: GameState) =
-    gs.KeyLeft1 <- has "ArrowLeft"
-    gs.KeyRight1 <- has "ArrowRight"
-    gs.KeyUp1 <- has "ArrowUp"
-    gs.KeyDown1 <- has "ArrowDown"
-    gs.KeyFire1 <- has "ShiftRight" || has "Enter"
+    gs.Input1 <-
+        { Left = has "ArrowLeft"
+          Right = has "ArrowRight"
+          Up = has "ArrowUp"
+          Down = has "ArrowDown"
+          Fire = has "ShiftRight" || has "Enter" }
 
 /// Apply player 2 directional + fire keys (WASD + Space/Tab)
 let private mapPlayer2Keys (gs: GameState) =
-    gs.KeyLeft2 <- has "KeyA"
-    gs.KeyRight2 <- has "KeyD"
-    gs.KeyUp2 <- has "KeyW"
-    gs.KeyDown2 <- has "KeyS"
-    gs.KeyFire2 <- has "Space" || has "Tab"
+    gs.Input2 <-
+        { Left = has "KeyA"
+          Right = has "KeyD"
+          Up = has "KeyW"
+          Down = has "KeyS"
+          Fire = has "Space" || has "Tab" }
 
 // ─── State ───────────────────────────────────────────────────────────────
 

@@ -402,7 +402,7 @@ let drawGameOver (ctx: obj) (gs: GameState) width height leagueMode =
     drawCentered ctx medSize width (height * 0.40) scoreStr Color.White
 
     let winner =
-        match compare gs.Team1Score gs.Team2Score with
+        match sign (compare gs.Team1Score gs.Team2Score) with
         | 1 -> $"{teamNames.[gs.Team1Idx]} WINS!"
         | -1 -> $"{teamNames.[gs.Team2Idx]} WINS!"
         | _ -> "IT'S A TIE!"
