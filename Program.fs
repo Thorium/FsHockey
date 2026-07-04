@@ -225,7 +225,7 @@ let private update () =
 
         if pressed "Escape" then app.Mode <- Menu
 
-        if pressed "Space" && matchOver gs then initMatch gs
+        if pressed "Space" && matchOver gs then app.Mode <- Menu
 
     | LeagueMatchup ->
         if pressed "Space" then startLeagueMatch app
