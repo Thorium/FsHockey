@@ -229,7 +229,7 @@ type HockeyGame() as this =
                 app.Mode <- Menu
 
             if this.IsKeyPressed(Keys.Space, ks) && matchOver gs then
-                initMatch gs
+                app.Mode <- Menu
 
         | LeagueMatchup ->
             if this.IsKeyPressed(Keys.Space, ks) then
