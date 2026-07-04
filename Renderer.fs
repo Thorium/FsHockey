@@ -141,7 +141,7 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
         else
             0.0f
 
-    use savedTransform = g.Transform.Clone()
+    use savedTransform = g.Transform
     g.TranslateTransform(px, py)
     g.RotateTransform(angleDeg)
     let px = 0.0f
@@ -587,7 +587,7 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
            "ENTER = Start Game  |  L = Play League  |  ESC = Quit"
            $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
            "Hold shoot key longer for harder shot, quick tap for a pass"
-           "Player 1: Arrow Keys + RShift/Enter to shoot"
+           "Player 1: Arrow Keys + Shift/Enter to shoot"
            "Player 2: WASD + Space/Tab to shoot"
            "(Set team to HUMAN PLAYER for keyboard control)" |]
 

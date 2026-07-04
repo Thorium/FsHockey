@@ -98,6 +98,8 @@ let startLeagueMatch (app: AppState) =
         let t1, t2 = currentMatchup league
         gs.Team1Idx <- t1
         gs.Team2Idx <- t2
+        gs.Team1Human <- (t1 = league.HumanTeam)
+        gs.Team2Human <- false
         gs.NumPeriods <- LeaguePeriods
         setPlayerMode gs app.FivePlayerMode
         setTeamSpeeds app
@@ -109,6 +111,8 @@ let startExhibitionMatch (app: AppState) =
     let gs = app.GameState
     gs.Team1Idx <- app.SelectedTeam1
     gs.Team2Idx <- app.SelectedTeam2
+    gs.Team1Human <- (gs.Team1Idx = 0)
+    gs.Team2Human <- (gs.Team2Idx = 0)
     gs.NumPeriods <- ExhibitionPeriods
     setPlayerMode gs app.FivePlayerMode
     setTeamSpeeds app
@@ -128,7 +132,7 @@ let private mapPlayer1Keys (gs: GameState) key down =
     | Keys.Right -> gs.Input1 <- { gs.Input1 with Right = down }
     | Keys.Up -> gs.Input1 <- { gs.Input1 with Up = down }
     | Keys.Down -> gs.Input1 <- { gs.Input1 with Down = down }
-    | Keys.RShiftKey
+    | Keys.ShiftKey
     | Keys.Enter -> gs.Input1 <- { gs.Input1 with Fire = down }
     | _ -> ()
 
@@ -260,6 +264,10 @@ type HockeyForm() as this =
             target.DrawImageUnscaled(backBuffer, 0, 0)
 
     member _.OnKey(e: KeyEventArgs, down) =
+        if not down then
+            mapPlayer1Keys gs e.KeyCode false
+            mapPlayer2Keys gs e.KeyCode false
+
         match app.Mode with
         | Menu when down -> this.HandleMenuKey e.KeyCode
         | Playing -> this.HandleGameKey(e.KeyCode, down)
