@@ -20,12 +20,22 @@ open HockeyDemo.Renderer
 let private getEl (id: string) : obj = jsNative
 [<Emit("$0.getContext('2d')")>]
 let private get2dCtx (canvas: obj) : obj = jsNative
-[<Emit("$0.width")>]
-let private canvasW (c: obj) : float = jsNative
-[<Emit("$0.height")>]
-let private canvasH (c: obj) : float = jsNative
+[<Emit("$0.getBoundingClientRect().width")>]
+let private clientW (c: obj) : float = jsNative
+[<Emit("$0.getBoundingClientRect().height")>]
+let private clientH (c: obj) : float = jsNative
+[<Emit("$0.width = $1")>]
+let private setCanvasW (c: obj) (w: float) : unit = jsNative
+[<Emit("$0.height = $1")>]
+let private setCanvasH (c: obj) (h: float) : unit = jsNative
+[<Emit("window.devicePixelRatio || 1")>]
+let private getDpr () : float = jsNative
+[<Emit("$0.setTransform($1, 0, 0, $1, 0, 0)")>]
+let private setCtxScale (ctx: obj) (s: float) : unit = jsNative
 [<Emit("document.addEventListener($0, $1)")>]
 let private onDocument (event: string) (handler: obj -> unit) : unit = jsNative
+[<Emit("window.addEventListener($0, $1)")>]
+let private onWindow (event: string) (handler: obj -> unit) : unit = jsNative
 [<Emit("window.requestAnimationFrame($0)")>]
 let private requestFrame (cb: float -> unit) : unit = jsNative
 [<Emit("$0.code")>]
@@ -179,8 +189,26 @@ let private mapPlayer2Keys (gs: GameState) =
 
 let private canvas = getEl "screen"
 let private ctx = get2dCtx canvas
-let private viewW = canvasW canvas
-let private viewH = canvasH canvas
+
+/// Canvas size in CSS pixels. The backing store is scaled by devicePixelRatio
+/// for crisp rendering on HiDPI screens, with a matching context transform so
+/// all drawing code keeps working in CSS pixels.
+let mutable private viewW = 0.0
+let mutable private viewH = 0.0
+
+/// Size the canvas backing store from its displayed (CSS) size.
+/// Called at startup and whenever the window is resized.
+let private resizeCanvas () =
+    let cw = clientW canvas
+    let ch = clientH canvas
+
+    if cw > 0.0 && ch > 0.0 then
+        let dpr = getDpr ()
+        viewW <- cw
+        viewH <- ch
+        setCanvasW canvas (floor (cw * dpr))
+        setCanvasH canvas (floor (ch * dpr))
+        setCtxScale ctx dpr
 
 let private app = createAppState ()
 let private gs = app.GameState
@@ -349,4 +377,6 @@ let rec private loop (ts: float) =
 // ─── Bootstrap ──────────────────────────────────────────────────────────
 onDocument "keydown" onKeyDown
 onDocument "keyup" onKeyUp
+onWindow "resize" (fun _ -> resizeCanvas ())
+resizeCanvas ()
 requestFrame loop

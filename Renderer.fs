@@ -578,11 +578,27 @@ let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) league
     let w = width
     let h = height
 
-    let rinkH = OrigH + HudHeight
-    let sx = w / OrigW
-    let sy = h / rinkH
+    // The 320x200 layout is a CGA-style design with non-square pixels: on a
+    // 4:3 monitor its pixel aspect ratio is 1.2. Preserve the rink's shape by
+    // using one uniform content scale `s` (sx = 1.2 * s, sy = s), sized so the
+    // rink plus the HUD fill as much of the canvas as possible.
+    let rinkGameH = stripPx FieldBottom + 4.0
+    let contentGameH = rinkGameH + HudHeight
+    let par = 1.2
+    let s = min (w / (OrigW * par)) ((h - 2.0) / contentGameH)
+    let sx = s * par
+    let sy = s
 
     fillRect ctx 0.0 0.0 w h bgColor
+
+    // HUD is anchored to the bottom edge; the rink is centered in the space
+    // above it (horizontally, and vertically on very wide canvases).
+    let hudH = HudHeight * sy
+    let offX = (w - OrigW * sx) / 2.0
+    let offY = max 0.0 ((h - hudH - 2.0 - rinkGameH * sy) / 2.0)
+
+    saveCtx ctx
+    translateCtx ctx offX offY
 
     drawRink ctx sx sy team1Color team2Color
 
@@ -642,8 +658,10 @@ let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) league
             isGoalie
             (int gs.GameTick)
 
-    // HUD
-    let rinkBottom = gameY sy FieldBottom + 4.0 * sy
+    restoreCtx ctx
+
+    // HUD (drawn in canvas space, spanning the full width at the bottom edge)
+    let rinkBottom = h - hudH - 2.0
     drawHud ctx gs sx sy rinkBottom w
 
     // Overlays
