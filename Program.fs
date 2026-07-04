@@ -318,7 +318,7 @@ type HockeyForm() as this =
         if down then
             match key with
             | Keys.Escape -> app.Mode <- Menu
-            | Keys.Space when matchOver gs -> initMatch gs
+            | Keys.Space when matchOver gs -> app.Mode <- Menu
             | _ -> ()
 
     // ─── League: Pre-match ────────────────────────────────────────
