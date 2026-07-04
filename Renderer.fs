@@ -391,7 +391,7 @@ let drawHud (sb: SpriteBatch) (gs: GameState) sx sy rinkBottom width =
 
 let drawGoalFlash (sb: SpriteBatch) (gs: GameState) width height =
     if gs.GoalFlashTimer > 0<tick> then
-        let alpha = if int gs.GoalFlashTimer % 10 < 5 then 80 else 30
+        let alpha = 60 * int gs.GoalFlashTimer / 90
         let overlayColor = Color(goalFlashColor.R, goalFlashColor.G, goalFlashColor.B, byte alpha)
         fillRect sb 0.0f 0.0f width height overlayColor
 
@@ -451,7 +451,7 @@ let drawGameOver (sb: SpriteBatch) (gs: GameState) width height leagueMode =
             if leagueMode then
                 "Press SPACE for standings"
             else
-                "Press SPACE to play again  |  ESC to quit"
+                "Press SPACE for main menu"
 
         drawCentered sb smallFont width (height * 0.72f) instrStr (Color(180, 180, 180))
     | _ -> ()
