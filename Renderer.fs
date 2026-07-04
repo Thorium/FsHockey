@@ -346,7 +346,7 @@ let drawHud (g: Graphics) (gs: GameState) sx sy rinkBottom width =
 
 let drawGoalFlash (g: Graphics) (gs: GameState) width height =
     if gs.GoalFlashTimer > 0<tick> then
-        let alpha = if int gs.GoalFlashTimer % 10 < 5 then 80 else 30
+        let alpha = 60 * int gs.GoalFlashTimer / 90
         use overlayBrush = new SolidBrush(Color.FromArgb(alpha, goalFlashColor))
         g.FillRectangle(overlayBrush, 0.0f, 0.0f, width, height)
 
@@ -409,7 +409,7 @@ let drawGameOver (g: Graphics) (gs: GameState) width height leagueMode =
         if leagueMode then
             "Press SPACE for standings"
         else
-            "Press SPACE to play again  |  ESC to quit"
+            "Press SPACE for main menu"
 
     drawCentered g smallFont grayBrush width (height * 0.72f) instrStr
 
