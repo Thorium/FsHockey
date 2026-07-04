@@ -605,12 +605,28 @@ let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
     let w = float32 width
     let h = float32 height
 
-    let rinkH = OrigH + HudHeight
-    let sx = w / OrigW
-    let sy = h / rinkH
+    // The 320x200 layout is a CGA-style design with non-square pixels: on a
+    // 4:3 monitor its pixel aspect ratio is 1.2. Preserve the rink's shape by
+    // using one uniform content scale `s` (sx = 1.2 * s, sy = s), sized so the
+    // rink plus the HUD fill as much of the window as possible.
+    let rinkGameH = float32 (stripPx FieldBottom) + 4.0f
+    let contentGameH = rinkGameH + HudHeight
+    let par = 1.2f
+    let s = min (w / (OrigW * par)) ((h - 2.0f) / contentGameH)
+    let sx = s * par
+    let sy = s
 
     use bgBrush = new SolidBrush(Color.FromArgb(30, 30, 50))
     g.FillRectangle(bgBrush, 0.0f, 0.0f, w, h)
+
+    // HUD is anchored to the bottom edge; the rink is centered in the space
+    // above it (horizontally, and vertically on very wide windows).
+    let hudH = HudHeight * sy
+    let offX = (w - OrigW * sx) / 2.0f
+    let offY = max 0.0f ((h - hudH - 2.0f - rinkGameH * sy) / 2.0f)
+
+    use savedTransform = g.Transform
+    g.TranslateTransform(offX, offY)
 
     drawRink g sx sy team1Color team2Color
 
@@ -669,8 +685,11 @@ let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
             isGoalie
             (int gs.GameTick)
 
-    // HUD
-    let rinkBottom = gameY sy FieldBottom + 4.0f * sy
+    // Back to window space for the HUD and overlays
+    g.Transform <- savedTransform
+
+    // HUD (spans the full width, anchored to the bottom edge)
+    let rinkBottom = h - hudH - 2.0f
     drawHud g gs sx sy rinkBottom w
 
     // Overlays
