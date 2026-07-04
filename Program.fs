@@ -163,6 +163,24 @@ type HockeyGame() as this =
         this.IsFixedTimeStep <- true
         this.TargetElapsedTime <- System.TimeSpan.FromSeconds(1.0 / float GameFps)
 
+        // Let the back buffer track the window size so the renderer can use
+        // all of it (the renderer does its own aspect-correct scaling).
+        this.Window.AllowUserResizing <- true
+
+        this.Window.ClientSizeChanged.Add(fun _ ->
+            let b = this.Window.ClientBounds
+
+            if
+                not graphics.IsFullScreen
+                && b.Width > 0
+                && b.Height > 0
+                && (graphics.PreferredBackBufferWidth <> b.Width
+                    || graphics.PreferredBackBufferHeight <> b.Height)
+            then
+                graphics.PreferredBackBufferWidth <- b.Width
+                graphics.PreferredBackBufferHeight <- b.Height
+                graphics.ApplyChanges())
+
     override _.LoadContent() =
         spriteBatch <- new SpriteBatch(graphics.GraphicsDevice)
         initTextures graphics.GraphicsDevice
@@ -179,9 +197,21 @@ type HockeyGame() as this =
     override this.Update(gameTime) =
         let ks = Keyboard.GetState()
 
-        // F11 toggles fullscreen (works in any mode)
+        // F11 toggles fullscreen (works in any mode). Fullscreen uses the
+        // desktop resolution (borderless) so the game renders at native size
+        // instead of stretching a 960x620 back buffer.
         if this.IsKeyPressed(Keys.F11, ks) then
-            graphics.IsFullScreen <- not graphics.IsFullScreen
+            if graphics.IsFullScreen then
+                graphics.IsFullScreen <- false
+                graphics.PreferredBackBufferWidth <- 960
+                graphics.PreferredBackBufferHeight <- 620
+            else
+                let dm = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode
+                graphics.HardwareModeSwitch <- false
+                graphics.PreferredBackBufferWidth <- dm.Width
+                graphics.PreferredBackBufferHeight <- dm.Height
+                graphics.IsFullScreen <- true
+
             graphics.ApplyChanges()
 
         match app.Mode with

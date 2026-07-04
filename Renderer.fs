@@ -184,7 +184,7 @@ let drawRink (sb: SpriteBatch) sx sy leftGoalColor rightGoalColor =
 
 // ─── Draw Retro Hockey Player ──────────────────────────────────────────
 
-let drawRetroPlayer (sb: SpriteBatch) sx sy (ent: Entity) jerseyColor helmetColor isActive (stickAnim: int) isGoalie (gameTick: int) =
+let drawRetroPlayer (sb: SpriteBatch) sx sy (offX: float32) (offY: float32) (ent: Entity) jerseyColor helmetColor isActive (stickAnim: int) isGoalie (gameTick: int) =
     let screenX = gameX sx ent.X
     let screenY = gameY sy ent.Y
     let u = 0.85f * sx
@@ -204,7 +204,7 @@ let drawRetroPlayer (sb: SpriteBatch) sx sy (ent: Entity) jerseyColor helmetColo
     let rotMatrix =
         Matrix.CreateTranslation(-screenX, -screenY, 0.0f)
         * Matrix.CreateRotationZ(angleRad)
-        * Matrix.CreateTranslation(screenX, screenY, 0.0f)
+        * Matrix.CreateTranslation(screenX + offX, screenY + offY, 0.0f)
     sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied, transformMatrix = rotMatrix)
 
     // Draw body at origin-relative coordinates (px, py = screenX, screenY)
@@ -321,11 +321,16 @@ let drawRetroPlayer (sb: SpriteBatch) sx sy (ent: Entity) jerseyColor helmetColo
     let bladeEndY = endY - 0.8f * uy
     drawLine sb endX endY bladeEndX bladeEndY bladeW stickBrown
 
-    // End the rotated SpriteBatch, restart the normal one
+    // End the rotated SpriteBatch, restart the caller's offset-translated one
     sb.End()
-    sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied)
 
-    // ─── Active player marker (drawn in screen space, NOT rotated)
+    sb.Begin(
+        SpriteSortMode.Deferred,
+        BlendState.NonPremultiplied,
+        transformMatrix = Matrix.CreateTranslation(offX, offY, 0.0f)
+    )
+
+    // ─── Active player marker (drawn in rink space, NOT rotated)
     if isActive then
         let my = screenY - 6.5f * uy
         let ms = 2.0f * sx
@@ -629,11 +634,37 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
     let w = float32 width
     let h = float32 height
 
-    let rinkH = OrigH + HudHeight
-    let sx = w / OrigW
-    let sy = h / rinkH
+    // The 320x200 layout is a CGA-style design with non-square pixels: on a
+    // 4:3 monitor its pixel aspect ratio is 1.2. Preserve the rink's shape by
+    // using one uniform content scale `s` (sx = 1.2 * s, sy = s), sized so the
+    // rink plus the HUD fill as much of the window as possible.
+    let rinkGameH = float32 (stripPx FieldBottom) + 4.0f
+    let contentGameH = rinkGameH + HudHeight
+    let par = 1.2f
+    let s = min (w / (OrigW * par)) ((h - 2.0f) / contentGameH)
+    let sx = s * par
+    let sy = s
 
     fillRect sb 0.0f 0.0f w h bgColor
+
+    // HUD is anchored to the bottom edge; the rink is centered in the space
+    // above it (horizontally, and vertically on very wide windows). The rink
+    // content is drawn in its own batch translated by (offX, offY).
+    let hudH = HudHeight * sy
+    let offX = (w - OrigW * sx) / 2.0f
+    let offY = max 0.0f ((h - hudH - 2.0f - rinkGameH * sy) / 2.0f)
+
+    sb.End()
+
+    sb.Begin(
+        SpriteSortMode.Deferred,
+        BlendState.NonPremultiplied,
+        null,
+        null,
+        null,
+        null,
+        System.Nullable(Matrix.CreateTranslation(offX, offY, 0.0f))
+    )
 
     drawRink sb sx sy team1Color team2Color
 
@@ -668,6 +699,8 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
             sb
             sx
             sy
+            offX
+            offY
             gs.Entities.[i]
             team1Color
             t1Helmet
@@ -685,6 +718,8 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
             sb
             sx
             sy
+            offX
+            offY
             gs.Entities.[ei]
             team2Color
             t2Helmet
@@ -693,8 +728,12 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
             isGoalie
             (int gs.GameTick)
 
-    // HUD
-    let rinkBottom = gameY sy FieldBottom + 4.0f * sy
+    // Back to screen space for the HUD and overlays
+    sb.End()
+    sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied)
+
+    // HUD (spans the full width, anchored to the bottom edge)
+    let rinkBottom = h - hudH - 2.0f
     drawHud sb gs sx sy rinkBottom w
 
     // Overlays
