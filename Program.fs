@@ -97,6 +97,8 @@ let startLeagueMatch (app: AppState) =
         let t1, t2 = currentMatchup league
         gs.Team1Idx <- t1
         gs.Team2Idx <- t2
+        gs.Team1Human <- (t1 = league.HumanTeam)
+        gs.Team2Human <- false
         gs.NumPeriods <- LeaguePeriods
         setPlayerMode gs app.FivePlayerMode
         setTeamSpeeds app
@@ -108,6 +110,8 @@ let startExhibitionMatch (app: AppState) =
     let gs = app.GameState
     gs.Team1Idx <- app.SelectedTeam1
     gs.Team2Idx <- app.SelectedTeam2
+    gs.Team1Human <- (gs.Team1Idx = 0)
+    gs.Team2Human <- (gs.Team2Idx = 0)
     gs.NumPeriods <- ExhibitionPeriods
     setPlayerMode gs app.FivePlayerMode
     setTeamSpeeds app
