@@ -36,6 +36,10 @@ let private setCtxScale (ctx: obj) (s: float) : unit = jsNative
 let private onDocument (event: string) (handler: obj -> unit) : unit = jsNative
 [<Emit("window.addEventListener($0, $1)")>]
 let private onWindow (event: string) (handler: obj -> unit) : unit = jsNative
+/// Observe layout-size changes of an element (fires on initial layout too,
+/// unlike the window resize event).
+[<Emit("new ResizeObserver($1).observe($0)")>]
+let private onElementResize (el: obj) (handler: unit -> unit) : unit = jsNative
 [<Emit("window.requestAnimationFrame($0)")>]
 let private requestFrame (cb: float -> unit) : unit = jsNative
 [<Emit("$0.code")>]
@@ -45,6 +49,15 @@ let private preventDefault (e: obj) : unit = jsNative
 /// Toggle browser fullscreen on the document element.
 [<Emit("(function(){ if (document.fullscreenElement) { document.exitFullscreen(); } else { document.documentElement.requestFullscreen(); } })()")>]
 let private toggleFullscreen () : unit = jsNative
+
+// Gamepad API. getGamepads() entries may be null (disconnected slots), so the
+// axis/button reads are null-safe.
+[<Emit("(navigator.getGamepads ? navigator.getGamepads() : [])")>]
+let private getGamepads () : obj array = jsNative
+[<Emit("($0 && $0.axes && $0.axes.length > $1) ? $0.axes[$1] : 0")>]
+let private gpAxis (gp: obj) (i: int) : float = jsNative
+[<Emit("($0 && $0.buttons && $0.buttons.length > $1) ? $0.buttons[$1].pressed : false")>]
+let private gpButton (gp: obj) (i: int) : bool = jsNative
 
 // ─── Application Mode ─────────────────────────────────────────────────
 
@@ -68,6 +81,7 @@ type AppState =
       mutable FastHuman: bool
       mutable HardMode: bool
       mutable FivePlayerMode: bool
+      mutable GamepadEnabled: bool
       mutable League: LeagueState option }
 
 let createAppState () =
@@ -79,6 +93,7 @@ let createAppState () =
       FastHuman = true
       HardMode = false
       FivePlayerMode = false
+      GamepadEnabled = true
       League = None }
 
 // ─── Helpers (ported from the MonoGame Program) ────────────────────────
@@ -123,6 +138,9 @@ let setTeamSpeeds (app: AppState) =
     let t2Human = (gs.Team2Idx = 0)
     applyTeam gs.Team1Idx 0 (app.FastHuman && t1Human) (not t1Human)
     applyTeam gs.Team2Idx gs.Team2Start (app.FastHuman && t2Human) (not t2Human)
+
+    gs.ShotSpeed <-
+        if app.HardMode then HardShotReleaseSpeed else ShotReleaseSpeed
 
 /// Start a league match for the current round
 let startLeagueMatch (app: AppState) =
@@ -185,6 +203,36 @@ let private mapPlayer2Keys (gs: GameState) =
           Down = has "KeyS"
           Fire = has "Space" || has "Tab" }
 
+// ─── Gamepad input (standard mapping) ────────────────────────────────────
+// Left stick / d-pad to skate, A / B / right trigger to shoot.
+
+let private GamepadDeadzone = 0.35
+
+/// Read pad `idx` as an Input snapshot (Input.none when not connected).
+let private gamepadInput (idx: int) : Input =
+    let gps = getGamepads ()
+
+    if idx < gps.Length then
+        let gp = gps.[idx]
+        let ax = gpAxis gp 0
+        let ay = gpAxis gp 1
+
+        { Left = ax < -GamepadDeadzone || gpButton gp 14
+          Right = ax > GamepadDeadzone || gpButton gp 15
+          Up = ay < -GamepadDeadzone || gpButton gp 12
+          Down = ay > GamepadDeadzone || gpButton gp 13
+          Fire = gpButton gp 0 || gpButton gp 1 || gpButton gp 7 }
+    else
+        Input.none
+
+/// Combine keyboard and gamepad snapshots (either source counts).
+let private mergeInput (a: Input) (b: Input) : Input =
+    { Left = a.Left || b.Left
+      Right = a.Right || b.Right
+      Up = a.Up || b.Up
+      Down = a.Down || b.Down
+      Fire = a.Fire || b.Fire }
+
 // ─── State ───────────────────────────────────────────────────────────────
 
 let private canvas = getEl "screen"
@@ -241,10 +289,15 @@ let private update () =
         if pressed "KeyF" then app.FastHuman <- not app.FastHuman
         if pressed "KeyH" then app.HardMode <- not app.HardMode
         if pressed "Digit5" then app.FivePlayerMode <- not app.FivePlayerMode
+        if pressed "KeyG" then app.GamepadEnabled <- not app.GamepadEnabled
 
     | Playing ->
         mapPlayer1Keys gs
         mapPlayer2Keys gs
+
+        if app.GamepadEnabled then
+            gs.Input1 <- mergeInput gs.Input1 (gamepadInput 0)
+            gs.Input2 <- mergeInput gs.Input2 (gamepadInput 1)
 
         for _ in 1..PhysicsTicksPerFrame do
             gameTick gs
@@ -264,6 +317,9 @@ let private update () =
 
     | LeaguePlaying ->
         mapPlayer1Keys gs
+
+        if app.GamepadEnabled then
+            gs.Input1 <- mergeInput gs.Input1 (gamepadInput 0)
 
         for _ in 1..PhysicsTicksPerFrame do
             gameTick gs
@@ -308,7 +364,7 @@ let private render () =
 
     match app.Mode with
     | Menu ->
-        drawMenu ctx fw fh app.SelectedTeam1 app.SelectedTeam2 app.ActiveColumn app.FastHuman app.HardMode app.FivePlayerMode
+        drawMenu ctx fw fh app.SelectedTeam1 app.SelectedTeam2 app.ActiveColumn app.FastHuman app.HardMode app.FivePlayerMode app.GamepadEnabled
 
     | Playing -> renderFrame ctx gs viewW viewH false
 
@@ -346,7 +402,7 @@ let private gameKeys =
     System.Collections.Generic.HashSet<string>(
         [| "ArrowLeft"; "ArrowRight"; "ArrowUp"; "ArrowDown"
            "ShiftRight"; "Enter"; "KeyA"; "KeyD"; "KeyW"; "KeyS"
-           "Space"; "Tab"; "KeyL"; "KeyF"; "KeyH"; "Digit5"; "F11" |])
+           "Space"; "Tab"; "KeyL"; "KeyF"; "KeyH"; "KeyG"; "Digit5"; "F11" |])
 
 let private onKeyDown (e: obj) =
     let code = evCode e
@@ -362,6 +418,10 @@ let private frameMs = 1000.0 / float GameFps
 let mutable private lastTime = 0.0
 let mutable private acc = 0.0
 
+/// Forces a redraw outside the fixed step (initial frame, canvas resize —
+/// resizing the backing store wipes the canvas).
+let mutable private needsRender = true
+
 let rec private loop (ts: float) =
     let dt = if lastTime = 0.0 then frameMs else ts - lastTime
     lastTime <- ts
@@ -369,14 +429,25 @@ let rec private loop (ts: float) =
 
     while acc >= frameMs do
         update ()
+        needsRender <- true
         acc <- acc - frameMs
 
-    render ()
+    // The game state only changes on 30 FPS fixed-step updates; skip redrawing
+    // identical frames on high-refresh displays (rAF can fire at 120+ Hz).
+    if needsRender then
+        needsRender <- false
+        render ()
+
     requestFrame loop
 
 // ─── Bootstrap ──────────────────────────────────────────────────────────
 onDocument "keydown" onKeyDown
 onDocument "keyup" onKeyUp
-onWindow "resize" (fun _ -> resizeCanvas ())
+// ResizeObserver catches every displayed-size change of the canvas (window
+// resize, fullscreen, initial layout), including ones that don't fire the
+// window resize event.
+onElementResize canvas (fun () ->
+    resizeCanvas ()
+    needsRender <- true)
 resizeCanvas ()
 requestFrame loop

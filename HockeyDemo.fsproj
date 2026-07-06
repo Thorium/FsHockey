@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Fable.Core" Version="5.0.0" />
+    <PackageReference Include="Fable.Core" Version="5.2.0" />
   </ItemGroup>
 
   <!-- Web assets (for IDE visibility; Vite consumes them directly) -->

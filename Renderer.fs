@@ -70,6 +70,16 @@ let gloveColor = Color(60, 60, 60)
 let sockColor = Color(200, 200, 210)
 let bgColor = Color(30, 30, 50)
 let grayColor = Color(160, 160, 160)
+let jerseyStripeColor = Color(255, 255, 255, 80)
+let cageColor = Color(100, 100, 100)
+let padOutlineColor = Color(160, 150, 130)
+
+/// Trail-mark colors precomputed per remaining-life tick, so the trail loop
+/// (up to MaxTrailMarks per frame) allocates nothing.
+let private trailColors =
+    Array.init (int TrailMarkLifetime + 1) (fun life ->
+        let a = int (float life / float (int TrailMarkLifetime) * 180.0) + 40
+        Color(255, 255, 255, min 220 a))
 
 // ─── Font / Text Helpers ────────────────────────────────────────────────
 // Canvas always has a monospace font available, so (unlike the FontStashSharp
@@ -201,7 +211,7 @@ let drawRetroPlayer (ctx: obj) sx sy (ent: Entity) (jerseyColor: Color) (helmetC
     if isGoalie then
         let maskX = px + 0.3 * u
         fillRect ctx maskX (py - 4.5 * uy) (1.2 * u) (1.5 * uy) goalieMaskColor
-        let cagePen = Color(100, 100, 100)
+        let cagePen = cageColor
         let cageW = max 0.5 (0.3 * u)
         let cx0 = maskX + 0.3 * u
         let cx1 = maskX + 0.9 * u
@@ -214,8 +224,7 @@ let drawRetroPlayer (ctx: obj) sx sy (ent: Entity) (jerseyColor: Color) (helmetC
     // Torso
     fillRect ctx (px - 3.0 * u) (py - 1.0 * uy) (6.0 * u) (2.5 * uy) jerseyColor
     // Jersey stripe
-    let stripeColor = Color(255, 255, 255, 80)
-    fillRect ctx (px - 3.0 * u) (py - 0.5 * uy) (6.0 * u) (0.6 * uy) stripeColor
+    fillRect ctx (px - 3.0 * u) (py - 0.5 * uy) (6.0 * u) (0.6 * uy) jerseyStripeColor
 
     // ─── Arms / Gloves
     // Left arm
@@ -233,7 +242,7 @@ let drawRetroPlayer (ctx: obj) sx sy (ent: Entity) (jerseyColor: Color) (helmetC
         fillRect ctx (px - 3.5 * u) (py + 2.7 * uy) (3.0 * u) (2.0 * uy) goaliePadColor
         fillRect ctx (px + 0.5 * u) (py + 2.7 * uy) (3.0 * u) (2.0 * uy) goaliePadColor
         // Pad outlines
-        let outlineColor = Color(160, 150, 130)
+        let outlineColor = padOutlineColor
         let outlineW = max 1.0 (0.4 * u)
         drawRect ctx (px - 3.5 * u) (py + 2.7 * uy) (3.0 * u) (2.0 * uy) outlineW outlineColor
         drawRect ctx (px + 0.5 * u) (py + 2.7 * uy) (3.0 * u) (2.0 * uy) outlineW outlineColor
@@ -510,7 +519,7 @@ let drawLeagueStandings (ctx: obj) width height (standings: (int * TeamStats) ar
 
 // ─── Menu Screen ──────────────────────────────────────────────────────
 
-let drawMenu (ctx: obj) width height selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer =
+let drawMenu (ctx: obj) width height selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer gamepadOn =
     fillRect ctx 0.0 0.0 width height (Color(10, 10, 30))
 
     let scale = min (width / OrigW) (height / OrigH)
@@ -555,15 +564,16 @@ let drawMenu (ctx: obj) width height selectedTeam1 selectedTeam2 activeColumn fa
     let fastStr = if fastHuman then "ON" else "OFF"
     let hardStr = if hardMode then "ON" else "OFF"
     let fiveStr = if fivePlayer then "6v6" else "3v3"
+    let padStr = if gamepadOn then "ON" else "OFF"
 
     let instrLines =
         [| "UP/DOWN = Select Team  |  TAB = Switch Column"
            "ENTER = Start Game  |  L = Play League"
            $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
-           "F11 = Toggle Fullscreen"
+           $"G = Gamepad [{padStr}]  |  F11 = Toggle Fullscreen"
            "Hold shoot key longer for harder shot, quick tap for a pass"
-           "Player 1: Arrow Keys + RShift/Enter to shoot"
-           "Player 2: WASD + Space/Tab to shoot"
+           "Player 1: Arrow Keys + RShift/Enter, or Gamepad 1"
+           "Player 2: WASD + Space/Tab, or Gamepad 2"
            "(Set team to HUMAN PLAYER for keyboard control)" |]
 
     let baseY = height * 0.7
@@ -607,9 +617,7 @@ let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) league
         let mark = gs.TrailMarks.[i]
 
         if mark.Life > 0<tick> then
-            let a = int (float (int mark.Life) / float (int TrailMarkLifetime) * 180.0) + 40
-            let alpha = min 220 a
-            let trailColor = Color(255, 255, 255, alpha)
+            let trailColor = trailColors.[int mark.Life]
             let mx = gameX sx mark.X
             let my = gameY sy mark.Y
             let r = 1.2 * sx

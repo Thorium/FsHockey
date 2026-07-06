@@ -13,6 +13,12 @@ open Fable.Core
 //   Color(255, 255, 80, 128)     with alpha
 
 type Color(r: int, g: int, b: int, a: int) =
+    // Built once at construction — Css is read on every draw call, so it must
+    // not re-interpolate per access.
+    let css =
+        if a >= 255 then $"rgb({r},{g},{b})"
+        else $"rgba({r},{g},{b},{float a / 255.0})"
+
     new(r, g, b) = Color(r, g, b, 255)
     member _.R = r
     member _.G = g
@@ -20,9 +26,7 @@ type Color(r: int, g: int, b: int, a: int) =
     member _.A = a
 
     /// CSS colour string (rgb / rgba) for fillStyle / strokeStyle.
-    member _.Css =
-        if a >= 255 then $"rgb({r},{g},{b})"
-        else $"rgba({r},{g},{b},{float a / 255.0})"
+    member _.Css = css
 
     static member White = Color(255, 255, 255)
     static member Black = Color(0, 0, 0)
