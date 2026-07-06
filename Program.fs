@@ -32,6 +32,7 @@ type AppState =
       mutable FastHuman: bool
       mutable HardMode: bool
       mutable FivePlayerMode: bool
+      mutable GamepadEnabled: bool
       mutable League: LeagueState option }
 
 let createAppState () =
@@ -43,6 +44,7 @@ let createAppState () =
       FastHuman = true
       HardMode = false
       FivePlayerMode = false
+      GamepadEnabled = true
       League = None }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -87,6 +89,9 @@ let setTeamSpeeds (app: AppState) =
     let t2Human = (gs.Team2Idx = 0)
     applyTeam gs.Team1Idx 0 (app.FastHuman && t1Human) (not t1Human)
     applyTeam gs.Team2Idx gs.Team2Start (app.FastHuman && t2Human) (not t2Human)
+
+    gs.ShotSpeed <-
+        if app.HardMode then HardShotReleaseSpeed else ShotReleaseSpeed
 
 /// Start a league match for the current round
 let startLeagueMatch (app: AppState) =
@@ -141,6 +146,38 @@ let private mapPlayer2Keys (gs: GameState) (ks: KeyboardState) =
           Up = ks.IsKeyDown(Keys.W)
           Down = ks.IsKeyDown(Keys.S)
           Fire = ks.IsKeyDown(Keys.Space) || ks.IsKeyDown(Keys.Tab) }
+
+// ─── Gamepad input ────────────────────────────────────────────────────
+// Left stick / d-pad to skate, A / B / right trigger to shoot.
+// Pad 1 drives player 1, pad 2 drives player 2, merged with the keyboard.
+
+let private GamepadDeadzone = 0.35f
+
+/// Read a pad as an Input snapshot (Input.none when not connected).
+let private gamepadInput (playerIndex: PlayerIndex) : Input =
+    let pad = GamePad.GetState(playerIndex)
+
+    if pad.IsConnected then
+        let stick = pad.ThumbSticks.Left // Y axis: positive = up
+
+        { Left = stick.X < -GamepadDeadzone || pad.DPad.Left = ButtonState.Pressed
+          Right = stick.X > GamepadDeadzone || pad.DPad.Right = ButtonState.Pressed
+          Up = stick.Y > GamepadDeadzone || pad.DPad.Up = ButtonState.Pressed
+          Down = stick.Y < -GamepadDeadzone || pad.DPad.Down = ButtonState.Pressed
+          Fire =
+            pad.Buttons.A = ButtonState.Pressed
+            || pad.Buttons.B = ButtonState.Pressed
+            || pad.Triggers.Right > 0.12f }
+    else
+        Input.none
+
+/// Combine keyboard and gamepad snapshots (either source counts).
+let private mergeInput (a: Input) (b: Input) : Input =
+    { Left = a.Left || b.Left
+      Right = a.Right || b.Right
+      Up = a.Up || b.Up
+      Down = a.Down || b.Down
+      Fire = a.Fire || b.Fire }
 
 // ─── Main Game (MonoGame) ─────────────────────────────────────────────
 
@@ -243,12 +280,19 @@ type HockeyGame() as this =
             if this.IsKeyPressed(Keys.D5, ks) then
                 app.FivePlayerMode <- not app.FivePlayerMode
 
+            if this.IsKeyPressed(Keys.G, ks) then
+                app.GamepadEnabled <- not app.GamepadEnabled
+
             if this.IsKeyPressed(Keys.Escape, ks) then
                 this.Exit()
 
         | Playing ->
             mapPlayer1Keys gs ks
             mapPlayer2Keys gs ks
+
+            if app.GamepadEnabled then
+                gs.Input1 <- mergeInput gs.Input1 (gamepadInput PlayerIndex.One)
+                gs.Input2 <- mergeInput gs.Input2 (gamepadInput PlayerIndex.Two)
 
             for _ in 1..PhysicsTicksPerFrame do
                 gameTick gs
@@ -271,6 +315,9 @@ type HockeyGame() as this =
 
         | LeaguePlaying ->
             mapPlayer1Keys gs ks
+
+            if app.GamepadEnabled then
+                gs.Input1 <- mergeInput gs.Input1 (gamepadInput PlayerIndex.One)
 
             for _ in 1..PhysicsTicksPerFrame do
                 gameTick gs
@@ -328,6 +375,7 @@ type HockeyGame() as this =
                 app.FastHuman
                 app.HardMode
                 app.FivePlayerMode
+                app.GamepadEnabled
 
         | Playing -> renderFrame spriteBatch gs w h false
 

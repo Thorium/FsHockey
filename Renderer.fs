@@ -563,7 +563,7 @@ let drawLeagueStandings (sb: SpriteBatch) width height (standings: (int * TeamSt
 
 // ─── Menu Screen ──────────────────────────────────────────────────────
 
-let drawMenu (sb: SpriteBatch) width height selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer =
+let drawMenu (sb: SpriteBatch) width height selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer gamepadOn =
     fillRect sb 0.0f 0.0f width height (Color(10, 10, 30))
 
     let scale = min (width / OrigW) (height / OrigH)
@@ -610,15 +610,16 @@ let drawMenu (sb: SpriteBatch) width height selectedTeam1 selectedTeam2 activeCo
         let fastStr = if fastHuman then "ON" else "OFF"
         let hardStr = if hardMode then "ON" else "OFF"
         let fiveStr = if fivePlayer then "6v6" else "3v3"
+        let padStr = if gamepadOn then "ON" else "OFF"
 
         let instrLines =
             [| "UP/DOWN = Select Team  |  TAB = Switch Column"
                "ENTER = Start Game  |  L = Play League  |  ESC = Quit"
                $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
-               "F11 = Toggle Fullscreen"
+               $"G = Gamepad [{padStr}]  |  F11 = Toggle Fullscreen"
                "Hold shoot key longer for harder shot, quick tap for a pass"
-               "Player 1: Arrow Keys + RShift/Enter to shoot"
-               "Player 2: WASD + Space/Tab to shoot"
+               "Player 1: Arrow Keys + RShift/Enter, or Gamepad 1"
+               "Player 2: WASD + Space/Tab, or Gamepad 2"
                "(Set team to HUMAN PLAYER for keyboard control)" |]
 
         let baseY = height * 0.7f
