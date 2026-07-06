@@ -31,6 +31,7 @@ type AppState =
       mutable FastHuman: bool
       mutable HardMode: bool
       mutable FivePlayerMode: bool
+      mutable GamepadEnabled: bool
       mutable League: LeagueState option }
 
 let createAppState () =
@@ -42,6 +43,7 @@ let createAppState () =
       FastHuman = true
       HardMode = false
       FivePlayerMode = false
+      GamepadEnabled = true
       League = None }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -89,6 +91,9 @@ let setTeamSpeeds (app: AppState) =
     applyTeam gs.Team1Idx 0 (app.FastHuman && t1Human) (not t1Human)
     applyTeam gs.Team2Idx gs.Team2Start (app.FastHuman && t2Human) (not t2Human)
 
+    gs.ShotSpeed <-
+        if app.HardMode then HardShotReleaseSpeed else ShotReleaseSpeed
+
 /// Start a league match for the current round
 let startLeagueMatch (app: AppState) =
     match app.League with
@@ -124,28 +129,101 @@ let inline matchOver (gs: GameState) =
     not gs.Playing && gs.ClockSeconds >= gs.PeriodLength
 
 // ─── Key Mapping Helpers ──────────────────────────────────────────────
+// Keyboard state is kept as Input snapshots separate from GameState.Input1/2
+// so gamepad input can be merged in per tick without fighting the key events.
 
 /// Apply player 1 directional + fire keys (Arrow keys + RShift/Enter)
-let private mapPlayer1Keys (gs: GameState) key down =
+let private mapPlayer1Keys (input: Input) key down =
     match key with
-    | Keys.Left -> gs.Input1 <- { gs.Input1 with Left = down }
-    | Keys.Right -> gs.Input1 <- { gs.Input1 with Right = down }
-    | Keys.Up -> gs.Input1 <- { gs.Input1 with Up = down }
-    | Keys.Down -> gs.Input1 <- { gs.Input1 with Down = down }
+    | Keys.Left -> { input with Left = down }
+    | Keys.Right -> { input with Right = down }
+    | Keys.Up -> { input with Up = down }
+    | Keys.Down -> { input with Down = down }
     | Keys.ShiftKey
-    | Keys.Enter -> gs.Input1 <- { gs.Input1 with Fire = down }
-    | _ -> ()
+    | Keys.Enter -> { input with Fire = down }
+    | _ -> input
 
 /// Apply player 2 directional + fire keys (WASD + Space/Tab)
-let private mapPlayer2Keys (gs: GameState) key down =
+let private mapPlayer2Keys (input: Input) key down =
     match key with
-    | Keys.A -> gs.Input2 <- { gs.Input2 with Left = down }
-    | Keys.D -> gs.Input2 <- { gs.Input2 with Right = down }
-    | Keys.W -> gs.Input2 <- { gs.Input2 with Up = down }
-    | Keys.S -> gs.Input2 <- { gs.Input2 with Down = down }
+    | Keys.A -> { input with Left = down }
+    | Keys.D -> { input with Right = down }
+    | Keys.W -> { input with Up = down }
+    | Keys.S -> { input with Down = down }
     | Keys.Space
-    | Keys.Tab -> gs.Input2 <- { gs.Input2 with Fire = down }
-    | _ -> ()
+    | Keys.Tab -> { input with Fire = down }
+    | _ -> input
+
+// ─── Gamepad input (XInput) ───────────────────────────────────────────
+// Left stick / d-pad to skate, A / B / right trigger to shoot.
+// Pad 1 drives player 1, pad 2 drives player 2, merged with the keyboard.
+
+module private XInput =
+    open System.Runtime.InteropServices
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type Gamepad =
+        struct
+            val mutable wButtons: uint16
+            val mutable bLeftTrigger: byte
+            val mutable bRightTrigger: byte
+            val mutable sThumbLX: int16
+            val mutable sThumbLY: int16
+            val mutable sThumbRX: int16
+            val mutable sThumbRY: int16
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type State =
+        struct
+            val mutable dwPacketNumber: uint32
+            val mutable Gamepad: Gamepad
+        end
+
+    [<DllImport("xinput1_4.dll")>]
+    extern int XInputGetState(uint32 dwUserIndex, State& pState)
+
+/// False once XInput turns out to be unavailable on this machine.
+let mutable private xinputAvailable = true
+
+/// ~0.35 of the full int16 stick range (matches the browser build's deadzone)
+let private GamepadDeadzone = 11469
+
+/// Read pad `idx` as an Input snapshot (Input.none when not connected).
+let private gamepadInput (idx: int) : Input =
+    if not xinputAvailable then
+        Input.none
+    else
+        let mutable state = XInput.State()
+
+        let connected =
+            try
+                XInput.XInputGetState(uint32 idx, &state) = 0
+            with :? DllNotFoundException | :? EntryPointNotFoundException ->
+                xinputAvailable <- false
+                false
+
+        if connected then
+            let gp = state.Gamepad
+            let buttons = int gp.wButtons
+            let lx = int gp.sThumbLX
+            let ly = int gp.sThumbLY // XInput Y axis: positive = up
+
+            { Left = lx < -GamepadDeadzone || buttons &&& 0x0004 <> 0
+              Right = lx > GamepadDeadzone || buttons &&& 0x0008 <> 0
+              Up = ly > GamepadDeadzone || buttons &&& 0x0001 <> 0
+              Down = ly < -GamepadDeadzone || buttons &&& 0x0002 <> 0
+              Fire = buttons &&& 0x1000 <> 0 || buttons &&& 0x2000 <> 0 || gp.bRightTrigger > 30uy }
+        else
+            Input.none
+
+/// Combine keyboard and gamepad snapshots (either source counts).
+let private mergeInput (a: Input) (b: Input) : Input =
+    { Left = a.Left || b.Left
+      Right = a.Right || b.Right
+      Up = a.Up || b.Up
+      Down = a.Down || b.Down
+      Fire = a.Fire || b.Fire }
 
 // ─── Main Form ────────────────────────────────────────────────────────
 
@@ -154,6 +232,10 @@ type HockeyForm() as this =
 
     let app = createAppState ()
     let gs = app.GameState
+
+    // Keyboard-only input snapshots; merged with gamepads each tick
+    let mutable kbInput1 = Input.none
+    let mutable kbInput2 = Input.none
 
     let panel =
         { new Panel() with
@@ -198,6 +280,15 @@ type HockeyForm() as this =
         match app.Mode with
         | Playing
         | LeaguePlaying ->
+            gs.Input1 <- kbInput1
+            gs.Input2 <- kbInput2
+
+            if app.GamepadEnabled then
+                gs.Input1 <- mergeInput gs.Input1 (gamepadInput 0)
+
+                if app.Mode = Playing then
+                    gs.Input2 <- mergeInput gs.Input2 (gamepadInput 1)
+
             for _ in 1..PhysicsTicksPerFrame do
                 gameTick gs
 
@@ -211,8 +302,9 @@ type HockeyForm() as this =
         let h = panel.ClientSize.Height
 
         if w > 0 && h > 0 then
-            use backBuffer = new Bitmap(w, h)
-            use g = Graphics.FromImage backBuffer
+            // The panel is double-buffered (ControlStyles set in the ctor), so
+            // draw straight into it — no manual per-frame backbuffer Bitmap.
+            let g = target
             g.SmoothingMode <- Drawing2D.SmoothingMode.AntiAlias
             g.TextRenderingHint <- Text.TextRenderingHint.ClearTypeGridFit
 
@@ -231,6 +323,7 @@ type HockeyForm() as this =
                     app.FastHuman
                     app.HardMode
                     app.FivePlayerMode
+                    app.GamepadEnabled
 
             | Playing -> renderFrame g gs w h false
 
@@ -261,12 +354,10 @@ type HockeyForm() as this =
                 |> Option.iter (fun league ->
                     drawLeagueStandings g fw fh (getSortedStandings league) true league.HumanTeam)
 
-            target.DrawImageUnscaled(backBuffer, 0, 0)
-
     member _.OnKey(e: KeyEventArgs, down) =
         if not down then
-            mapPlayer1Keys gs e.KeyCode false
-            mapPlayer2Keys gs e.KeyCode false
+            kbInput1 <- mapPlayer1Keys kbInput1 e.KeyCode false
+            kbInput2 <- mapPlayer2Keys kbInput2 e.KeyCode false
 
         match app.Mode with
         | Menu when down -> this.HandleMenuKey e.KeyCode
@@ -304,6 +395,7 @@ type HockeyForm() as this =
         | Keys.F -> app.FastHuman <- not app.FastHuman
         | Keys.H -> app.HardMode <- not app.HardMode
         | Keys.D5 -> app.FivePlayerMode <- not app.FivePlayerMode
+        | Keys.G -> app.GamepadEnabled <- not app.GamepadEnabled
 
         | Keys.Escape -> Application.Exit()
 
@@ -312,8 +404,8 @@ type HockeyForm() as this =
     // ─── Exhibition Game ──────────────────────────────────────────
 
     member _.HandleGameKey(key, down) =
-        mapPlayer1Keys gs key down
-        mapPlayer2Keys gs key down
+        kbInput1 <- mapPlayer1Keys kbInput1 key down
+        kbInput2 <- mapPlayer2Keys kbInput2 key down
 
         if down then
             match key with
@@ -334,7 +426,7 @@ type HockeyForm() as this =
     // ─── League: In-game ──────────────────────────────────────────
 
     member _.HandleLeagueGameKey(key, down) =
-        mapPlayer1Keys gs key down
+        kbInput1 <- mapPlayer1Keys kbInput1 key down
 
         if down then
             match key with

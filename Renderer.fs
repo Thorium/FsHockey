@@ -3,6 +3,7 @@
 module HockeyDemo.Renderer
 
 open System
+open System.Collections.Generic
 open System.Drawing
 open System.Drawing.Drawing2D
 open HockeyDemo.Physics
@@ -44,6 +45,58 @@ let skateColor = Color.FromArgb(80, 80, 80)
 let goaliePadColor = Color.FromArgb(230, 220, 200)
 let goalieMaskColor = Color.FromArgb(220, 220, 220)
 
+// ─── Cached GDI+ objects ──────────────────────────────────────────────
+// Brushes, pens and fonts used to be allocated (and disposed) per draw call —
+// hundreds of GDI handles per frame at 30 FPS. Cache them instead; the number
+// of distinct colors/sizes is small and bounded, and entries live for the
+// process lifetime. The returned objects are shared: never dispose them.
+
+let private brushCache = Dictionary<Color, Brush>()
+
+/// Cached solid brush for a color.
+let private solidBrush (c: Color) : Brush =
+    match brushCache.TryGetValue c with
+    | true, b -> b
+    | _ ->
+        let b = new SolidBrush(c) :> Brush
+        brushCache.[c] <- b
+        b
+
+let private penCache = Dictionary<Color, Pen>()
+
+/// Cached pen for a color. Width (and dash style) are per-use state set on
+/// every fetch, so fetch a pen only right before drawing with it.
+let private penFor (c: Color) (width: float32) : Pen =
+    let p =
+        match penCache.TryGetValue c with
+        | true, p -> p
+        | _ ->
+            let p = new Pen(c, width)
+            penCache.[c] <- p
+            p
+
+    p.Width <- width
+    p.DashStyle <- DashStyle.Solid
+    p
+
+let private fontCache = Dictionary<struct (float32 * FontStyle), Font>()
+
+/// Cached Consolas font. Sizes vary continuously while the window is being
+/// resized, so the cache is emptied if it ever grows past a sane bound.
+let private fontFor (size: float32) (style: FontStyle) : Font =
+    match fontCache.TryGetValue(struct (size, style)) with
+    | true, f -> f
+    | _ ->
+        if fontCache.Count > 64 then
+            for f in fontCache.Values do
+                f.Dispose()
+
+            fontCache.Clear()
+
+        let f = new Font("Consolas", size, style)
+        fontCache.[struct (size, style)] <- f
+        f
+
 // ─── Drawing Helpers ──────────────────────────────────────────────────
 
 /// Scale game X-coordinate to screen
@@ -77,35 +130,30 @@ let drawRink (g: Graphics) sx sy leftGoalColor rightGoalColor =
     let cy = gameY sy CenterY
 
     // Ice surface
-    use iceBrush = new SolidBrush(iceColor)
-    g.FillRectangle(iceBrush, 0.0f, 0.0f, rinkW, rinkH)
+    g.FillRectangle(solidBrush iceColor, 0.0f, 0.0f, rinkW, rinkH)
 
     // Board outline
-    use boardPen = new Pen(boardColor, 3.0f)
-    g.DrawRectangle(boardPen, fl, ft, fr - fl, fb - ft)
+    g.DrawRectangle(penFor boardColor 3.0f, fl, ft, fr - fl, fb - ft)
 
     // Goal nets
     let drawGoalNet x color =
-        use brush = new SolidBrush(Color.FromArgb(60, color))
-        use pen = new Pen(color, 2.0f)
-        g.FillRectangle(brush, x, gt, gd, gb - gt)
-        g.DrawRectangle(pen, x, gt, gd, gb - gt)
+        g.FillRectangle(solidBrush (Color.FromArgb(60, color)), x, gt, gd, gb - gt)
+        g.DrawRectangle(penFor color 2.0f, x, gt, gd, gb - gt)
 
     drawGoalNet (fl - gd) leftGoalColor
     drawGoalNet fr rightGoalColor
 
     // Center line + circle
-    use centerPen = new Pen(lineColor, 1.5f)
+    let centerPen = penFor lineColor 1.5f
     g.DrawLine(centerPen, cx, ft, cx, fb)
     let circR = 20.0f * sx
     g.DrawEllipse(centerPen, cx - circR, cy - circR, circR * 2.0f, circR * 2.0f)
 
     // Center dot
-    use dotBrush = new SolidBrush(lineColor)
-    g.FillEllipse(dotBrush, cx - 3.0f, cy - 3.0f, 6.0f, 6.0f)
+    g.FillEllipse(solidBrush lineColor, cx - 3.0f, cy - 3.0f, 6.0f, 6.0f)
 
     // Blue lines (1/3 and 2/3 of field width)
-    use bluePen = new Pen(blueLineColor, 2.0f)
+    let bluePen = penFor blueLineColor 2.0f
     let fieldW = stripPx FieldRight - stripPx FieldLeft
     let bl1 = gameX sx (FieldLeft + fieldW / 3.0 * 1.0<px>)
     let bl2 = gameX sx (FieldLeft + fieldW / 3.0 * 2.0<px>)
@@ -113,7 +161,8 @@ let drawRink (g: Graphics) sx sy leftGoalColor rightGoalColor =
     g.DrawLine(bluePen, bl2, ft, bl2, fb)
 
     // Goal lines (red dashed)
-    use goalLinePen = new Pen(lineColor, 1.0f, DashStyle = DashStyle.Dash)
+    let goalLinePen = penFor lineColor 1.0f
+    goalLinePen.DashStyle <- DashStyle.Dash
     let glx = gameX sx GoalLeftX
     let grx = gameX sx GoalRightX
     g.DrawLine(goalLinePen, glx, ft, glx, fb)
@@ -158,36 +207,32 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
             0.0f
 
     // ─── Helmet (head) ─────────────
-    use helmetBrush = new SolidBrush(helmetColor)
-    g.FillRectangle(helmetBrush, px - 1.5f * u, py - 5.5f * uy, 3.0f * u, 2.0f * uy)
+    g.FillRectangle(solidBrush helmetColor, px - 1.5f * u, py - 5.5f * uy, 3.0f * u, 2.0f * uy)
 
     // Face area (skin visible below helmet)
-    use skinBrush = new SolidBrush(skinColor)
-    g.FillRectangle(skinBrush, px - 1.0f * u, py - 3.5f * uy, 2.0f * u, 1.0f * uy)
+    g.FillRectangle(solidBrush skinColor, px - 1.0f * u, py - 3.5f * uy, 2.0f * u, 1.0f * uy)
 
     // ─── Goalie: face mask (cage) ──
     if isGoalie then
-        use maskBrush = new SolidBrush(goalieMaskColor)
         let maskX = px + 0.3f * u
-        g.FillRectangle(maskBrush, maskX, py - 4.5f * uy, 1.2f * u, 1.5f * uy)
-        use cagePen = new Pen(Color.FromArgb(100, 100, 100), max 0.5f (0.3f * u))
+        g.FillRectangle(solidBrush goalieMaskColor, maskX, py - 4.5f * uy, 1.2f * u, 1.5f * uy)
+        let cagePen = penFor (Color.FromArgb(100, 100, 100)) (max 0.5f (0.3f * u))
         let cx0 = maskX + 0.3f * u
         let cx1 = maskX + 0.9f * u
         g.DrawLine(cagePen, cx0, py - 4.5f * uy, cx0, py - 3.0f * uy)
         g.DrawLine(cagePen, cx1, py - 4.5f * uy, cx1, py - 3.0f * uy)
 
     // ─── Jersey (body) ─────────────
-    use jerseyBrush = new SolidBrush(jerseyColor)
+    let jerseyBrush = solidBrush jerseyColor
     // Shoulders
     g.FillRectangle(jerseyBrush, px - 3.5f * u, py - 2.5f * uy, 7.0f * u, 1.5f * uy)
     // Torso
     g.FillRectangle(jerseyBrush, px - 3.0f * u, py - 1.0f * uy, 6.0f * u, 2.5f * uy)
     // Jersey number stripe (white stripe across chest)
-    use stripeBrush = new SolidBrush(Color.FromArgb(80, 255, 255, 255))
-    g.FillRectangle(stripeBrush, px - 3.0f * u, py - 0.5f * uy, 6.0f * u, 0.6f * uy)
+    g.FillRectangle(solidBrush (Color.FromArgb(80, 255, 255, 255)), px - 3.0f * u, py - 0.5f * uy, 6.0f * u, 0.6f * uy)
 
     // ─── Arms / Gloves ─────────────
-    use gloveBrush = new SolidBrush(gloveColor)
+    let gloveBrush = solidBrush gloveColor
     // Left arm (extends slightly out from shoulder)
     g.FillRectangle(jerseyBrush, px - 4.0f * u, py - 2.0f * uy, 1.2f * u, 2.0f * uy)
     g.FillRectangle(gloveBrush, px - 4.0f * u, py + 0.0f * uy, 1.2f * u, 0.8f * uy)
@@ -197,18 +242,18 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
 
     // ─── Trousers / Goalie pads ────
     if isGoalie then
-        use padBrush = new SolidBrush(goaliePadColor)
+        let padBrush = solidBrush goaliePadColor
         // Hips
         g.FillRectangle(padBrush, px - 3.5f * u, py + 1.5f * uy, 7.0f * u, 1.2f * uy)
         // Leg pads
         g.FillRectangle(padBrush, px - 3.5f * u, py + 2.7f * uy, 3.0f * u, 2.0f * uy)
         g.FillRectangle(padBrush, px + 0.5f * u, py + 2.7f * uy, 3.0f * u, 2.0f * uy)
         // Pad outlines
-        use padPen = new Pen(Color.FromArgb(160, 150, 130), max 1.0f (0.4f * u))
+        let padPen = penFor (Color.FromArgb(160, 150, 130)) (max 1.0f (0.4f * u))
         g.DrawRectangle(padPen, px - 3.5f * u, py + 2.7f * uy, 3.0f * u, 2.0f * uy)
         g.DrawRectangle(padPen, px + 0.5f * u, py + 2.7f * uy, 3.0f * u, 2.0f * uy)
     else
-        use trouserBrush = new SolidBrush(trouserColor)
+        let trouserBrush = solidBrush trouserColor
         // Hips
         g.FillRectangle(trouserBrush, px - 3.0f * u, py + 1.5f * uy, 6.0f * u, 1.2f * uy)
         // Left leg (animated)
@@ -216,12 +261,12 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
         // Right leg (animated opposite)
         g.FillRectangle(trouserBrush, px + 0.3f * u, py + 2.7f * uy - legOffset, 2.2f * u, 1.0f * uy)
         // Socks (between trousers and skates)
-        use sockBrush = new SolidBrush(sockColor)
+        let sockBrush = solidBrush sockColor
         g.FillRectangle(sockBrush, px - 2.2f * u, py + 3.5f * uy + legOffset, 1.8f * u, 0.5f * uy)
         g.FillRectangle(sockBrush, px + 0.4f * u, py + 3.5f * uy - legOffset, 1.8f * u, 0.5f * uy)
 
     // ─── Skate blades ──────────────
-    use skatePen = new Pen(skateColor, max 1.0f (0.5f * u))
+    let skatePen = penFor skateColor (max 1.0f (0.5f * u))
     if isGoalie then
         let skateY = py + 4.8f * uy
         g.DrawLine(skatePen, px - 2.0f * u, skateY, px - 0.5f * u, skateY)
@@ -234,7 +279,7 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
 
     // ─── Stick ─────────────────────
     let shaftWidth = max 1.5f (1.2f * u)
-    use shaftPen = new Pen(stickBrown, shaftWidth)
+    let shaftPen = penFor stickBrown shaftWidth
 
     let wobble =
         if stickAnim > 0 then
@@ -254,13 +299,13 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
     let tapeFrac = 0.18f
     let tapeEndX = startX + (endX - startX) * tapeFrac
     let tapeEndY = startY + (endY - startY) * tapeFrac
-    use tapePen = new Pen(stickTape, shaftWidth + 0.5f)
-    g.DrawLine(tapePen, startX, startY, tapeEndX, tapeEndY)
+    g.DrawLine(penFor stickTape (shaftWidth + 0.5f), startX, startY, tapeEndX, tapeEndY)
 
-    // Blade
+    // Blade (re-fetching the stickBrown pen adjusts the shared pen's width;
+    // the shaft has already been drawn by now)
     let bladeLen = 2.5f * u
     let bladeW = max 2.0f (1.4f * u)
-    use bladePen = new Pen(stickBrown, bladeW)
+    let bladePen = penFor stickBrown bladeW
     let bladeEndX = endX + faceDir * bladeLen
     let bladeEndY = endY - 0.8f * uy
     g.DrawLine(bladePen, endX, endY, bladeEndX, bladeEndY)
@@ -274,7 +319,7 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
         let py0 = gameY sy ent.Y
         let my = py0 - 6.5f * uy   // above the head
         let ms = 2.0f * sx
-        use markerPen = new Pen(activeMarker, max 1.0f (1.2f * sx))
+        let markerPen = penFor activeMarker (max 1.0f (1.2f * sx))
         // Small downward arrow / chevron
         g.DrawLine(markerPen, px0 - ms, my - ms, px0, my)
         g.DrawLine(markerPen, px0, my, px0 + ms, my - ms)
@@ -286,20 +331,18 @@ let drawPuck (g: Graphics) sx sy (ball: Entity) (animFrame: int) =
     let py = gameY sy ball.Y
     let r = 2.5f * sx
 
-    use brush = new SolidBrush(puckColor)
-    g.FillEllipse(brush, px - r, py - r, r * 2.0f, r * 2.0f)
+    g.FillEllipse(solidBrush puckColor, px - r, py - r, r * 2.0f, r * 2.0f)
 
     // Spinning highlight: orbits the puck center once per animation cycle
     let phase = float32 animFrame / float32 (BallAnimFrames * 2) * (2.0f * float32 System.Math.PI)
-    use hlBrush = new SolidBrush(puckHighlight)
+    let hlBrush = solidBrush puckHighlight
     let hr = r * 0.4f
     let orbit = r * 0.35f
     let hx = px + cos phase * orbit
     let hy = py - 0.5f + sin phase * orbit
     g.FillEllipse(hlBrush, hx - hr, hy - hr, hr * 2.0f, hr * 2.0f)
 
-    use pen = new Pen(Color.Black, 1.0f)
-    g.DrawEllipse(pen, px - r, py - r, r * 2.0f, r * 2.0f)
+    g.DrawEllipse(penFor Color.Black 1.0f, px - r, py - r, r * 2.0f, r * 2.0f)
 
 // ─── Draw HUD ─────────────────────────────────────────────────────────
 
@@ -307,18 +350,15 @@ let drawHud (g: Graphics) (gs: GameState) sx sy rinkBottom width =
     let hudY = rinkBottom + 2.0f
     let hudH = HudHeight * sy
 
-    use bgBrush = new SolidBrush(hudBg)
-    g.FillRectangle(bgBrush, 0.0f, hudY, width, hudH)
-
-    use sepPen = new Pen(boardColor, 2.0f)
-    g.DrawLine(sepPen, 0.0f, hudY, width, hudY)
+    g.FillRectangle(solidBrush hudBg, 0.0f, hudY, width, hudH)
+    g.DrawLine(penFor boardColor 2.0f, 0.0f, hudY, width, hudY)
 
     let fontSize = max 6.0f (5.0f * min sx sy)
-    use font = new Font("Consolas", fontSize, FontStyle.Bold)
-    use smallFont = new Font("Consolas", fontSize * 0.75f, FontStyle.Regular)
-    use textBrush = new SolidBrush(hudText)
-    use t1Brush = new SolidBrush(team1Color)
-    use t2Brush = new SolidBrush(team2Color)
+    let font = fontFor fontSize FontStyle.Bold
+    let smallFont = fontFor (fontSize * 0.75f) FontStyle.Regular
+    let textBrush = solidBrush hudText
+    let t1Brush = solidBrush team1Color
+    let t2Brush = solidBrush team2Color
 
     // Team 1 name + score (left)
     g.DrawString(teamNames.[gs.Team1Idx], smallFont, t1Brush, 10.0f * sx, hudY + 4.0f)
@@ -347,12 +387,11 @@ let drawHud (g: Graphics) (gs: GameState) sx sy rinkBottom width =
 let drawGoalFlash (g: Graphics) (gs: GameState) width height =
     if gs.GoalFlashTimer > 0<tick> then
         let alpha = 60 * int gs.GoalFlashTimer / 90
-        use overlayBrush = new SolidBrush(Color.FromArgb(alpha, goalFlashColor))
-        g.FillRectangle(overlayBrush, 0.0f, 0.0f, width, height)
+        g.FillRectangle(solidBrush (Color.FromArgb(alpha, goalFlashColor)), 0.0f, 0.0f, width, height)
 
         let scale = min (width / OrigW) (height / OrigH)
         let fontSize = max 8.0f (10.0f * scale)
-        use font = new Font("Consolas", fontSize, FontStyle.Bold)
+        let font = fontFor fontSize FontStyle.Bold
 
         let scorerName =
             match gs.GoalScoredBy with
@@ -365,30 +404,26 @@ let drawGoalFlash (g: Graphics) (gs: GameState) width height =
         let tx = (width - strSize.Width) / 2.0f
         let ty = (height - strSize.Height) / 2.0f - 20.0f
 
-        use shadowBrush = new SolidBrush(Color.FromArgb(180, Color.Black))
-        g.DrawString(goalStr, font, shadowBrush, tx + 2.0f, ty + 2.0f)
-        use goalBrush = new SolidBrush(goalFlashColor)
-        g.DrawString(goalStr, font, goalBrush, tx, ty)
+        g.DrawString(goalStr, font, solidBrush (Color.FromArgb(180, Color.Black)), tx + 2.0f, ty + 2.0f)
+        g.DrawString(goalStr, font, solidBrush goalFlashColor, tx, ty)
 
         let scoreStr = $"{gs.Team1Score} - {gs.Team2Score}"
-        use scoreFont = new Font("Consolas", fontSize * 0.7f, FontStyle.Bold)
-        use whiteBrush = new SolidBrush(Color.White)
-        drawCentered g scoreFont whiteBrush width (ty + strSize.Height + 4.0f) scoreStr
+        let scoreFont = fontFor (fontSize * 0.7f) FontStyle.Bold
+        drawCentered g scoreFont (solidBrush Color.White) width (ty + strSize.Height + 4.0f) scoreStr
 
 // ─── Game Over Screen ─────────────────────────────────────────────────
 
 let drawGameOver (g: Graphics) (gs: GameState) width height leagueMode =
-    use overlayBrush = new SolidBrush(Color.FromArgb(160, Color.Black))
-    g.FillRectangle(overlayBrush, 0.0f, 0.0f, width, height)
+    g.FillRectangle(solidBrush (Color.FromArgb(160, Color.Black)), 0.0f, 0.0f, width, height)
 
     let scale = min (width / OrigW) (height / OrigH)
     let struct (bigSize, medSize, smallSize) = mkFonts scale
-    use bigFont = new Font("Consolas", bigSize, FontStyle.Bold)
-    use medFont = new Font("Consolas", medSize, FontStyle.Bold)
-    use smallFont = new Font("Consolas", smallSize, FontStyle.Regular)
-    use whiteBrush = new SolidBrush(Color.White)
-    use yellowBrush = new SolidBrush(goalFlashColor)
-    use grayBrush = new SolidBrush(Color.FromArgb(180, 180, 180))
+    let bigFont = fontFor bigSize FontStyle.Bold
+    let medFont = fontFor medSize FontStyle.Bold
+    let smallFont = fontFor smallSize FontStyle.Regular
+    let whiteBrush = solidBrush Color.White
+    let yellowBrush = solidBrush goalFlashColor
+    let grayBrush = solidBrush (Color.FromArgb(180, 180, 180))
 
     drawCentered g bigFont yellowBrush width (height * 0.25f) "GAME OVER"
 
@@ -416,19 +451,18 @@ let drawGameOver (g: Graphics) (gs: GameState) width height leagueMode =
 // ─── League Matchup Screen ────────────────────────────────────────────
 
 let drawLeagueMatchup (g: Graphics) width height roundNum totalRounds (team1Name: string) (team2Name: string) =
-    use bgBrush = new SolidBrush(Color.FromArgb(10, 10, 30))
-    g.FillRectangle(bgBrush, 0.0f, 0.0f, width, height)
+    g.FillRectangle(solidBrush (Color.FromArgb(10, 10, 30)), 0.0f, 0.0f, width, height)
 
     let scale = min (width / OrigW) (height / OrigH)
     let struct (bigSize, medSize, smallSize) = mkFonts scale
-    use bigFont = new Font("Consolas", bigSize, FontStyle.Bold)
-    use medFont = new Font("Consolas", medSize, FontStyle.Bold)
-    use smallFont = new Font("Consolas", smallSize, FontStyle.Regular)
-    use yellowBrush = new SolidBrush(goalFlashColor)
-    use whiteBrush = new SolidBrush(Color.White)
-    use grayBrush = new SolidBrush(Color.FromArgb(160, 160, 160))
-    use t1Brush = new SolidBrush(team1Color)
-    use t2Brush = new SolidBrush(team2Color)
+    let bigFont = fontFor bigSize FontStyle.Bold
+    let medFont = fontFor medSize FontStyle.Bold
+    let smallFont = fontFor smallSize FontStyle.Regular
+    let yellowBrush = solidBrush goalFlashColor
+    let whiteBrush = solidBrush Color.White
+    let grayBrush = solidBrush (Color.FromArgb(160, 160, 160))
+    let t1Brush = solidBrush team1Color
+    let t2Brush = solidBrush team2Color
 
     drawCentered g bigFont yellowBrush width (height * 0.12f) "LEAGUE MODE"
     drawCentered g medFont whiteBrush width (height * 0.28f) $"ROUND {roundNum} of {totalRounds}"
@@ -440,17 +474,16 @@ let drawLeagueMatchup (g: Graphics) width height roundNum totalRounds (team1Name
 // ─── League Standings Screen ──────────────────────────────────────────
 
 let drawLeagueStandings (g: Graphics) width height (standings: (int * TeamStats) array) isFinal humanTeam =
-    use bgBrush = new SolidBrush(Color.FromArgb(10, 10, 30))
-    g.FillRectangle(bgBrush, 0.0f, 0.0f, width, height)
+    g.FillRectangle(solidBrush (Color.FromArgb(10, 10, 30)), 0.0f, 0.0f, width, height)
 
     let scale = min (width / OrigW) (height / OrigH)
     let struct (bigSize, medSize, smallSize) = mkFonts scale
-    use bigFont = new Font("Consolas", bigSize, FontStyle.Bold)
-    use medFont = new Font("Consolas", medSize, FontStyle.Bold)
-    use smallFont = new Font("Consolas", smallSize, FontStyle.Regular)
-    use yellowBrush = new SolidBrush(goalFlashColor)
-    use whiteBrush = new SolidBrush(Color.White)
-    use grayBrush = new SolidBrush(Color.FromArgb(160, 160, 160))
+    let bigFont = fontFor bigSize FontStyle.Bold
+    let medFont = fontFor medSize FontStyle.Bold
+    let smallFont = fontFor smallSize FontStyle.Regular
+    let yellowBrush = solidBrush goalFlashColor
+    let whiteBrush = solidBrush Color.White
+    let grayBrush = solidBrush (Color.FromArgb(160, 160, 160))
 
     let title = if isFinal then "FINAL STANDINGS" else "LEAGUE STANDINGS"
     drawCentered g bigFont yellowBrush width (height * 0.04f) title
@@ -476,9 +509,8 @@ let drawLeagueStandings (g: Graphics) width height (standings: (int * TeamStats)
         g.DrawString(h, medFont, grayBrush, hx, headerY))
 
     // Separator
-    use sepPen = new Pen(Color.FromArgb(60, 80, 120), 1.0f)
     let sepY = headerY + medSize * 1.4f
-    g.DrawLine(sepPen, tableX, sepY, width - tableX, sepY)
+    g.DrawLine(penFor (Color.FromArgb(60, 80, 120)) 1.0f, tableX, sepY, width - tableX, sepY)
 
     // Rows
     let dataY = sepY + 4.0f
@@ -489,8 +521,7 @@ let drawLeagueStandings (g: Graphics) width height (standings: (int * TeamStats)
         let isHuman = (teamIdx = humanTeam)
 
         if isHuman then
-            use hlBrush = new SolidBrush(Color.FromArgb(30, 50, 80))
-            g.FillRectangle(hlBrush, tableX - 2.0f, ry - 1.0f, width - tableX * 2.0f + 4.0f, rowH)
+            g.FillRectangle(solidBrush (Color.FromArgb(30, 50, 80)), tableX - 2.0f, ry - 1.0f, width - tableX * 2.0f + 4.0f, rowH)
 
         let textBr: Brush = if isHuman then yellowBrush else whiteBrush
         g.DrawString($"{rank + 1}.", smallFont, grayBrush, tableX, ry)
@@ -511,7 +542,7 @@ let drawLeagueStandings (g: Graphics) width height (standings: (int * TeamStats)
         let winnerStr =
             $"{teamNames.[winnerIdx]} WINS THE LEAGUE!  ({winnerStats.Points} pts)"
 
-        use winFont = new Font("Consolas", max 7.0f (7.0f * scale), FontStyle.Bold)
+        let winFont = fontFor (max 7.0f (7.0f * scale)) FontStyle.Bold
         drawCentered g winFont yellowBrush width (height * 0.88f) winnerStr
 
     let instrStr =
@@ -524,20 +555,17 @@ let drawLeagueStandings (g: Graphics) width height (standings: (int * TeamStats)
 
 // ─── Menu Screen ──────────────────────────────────────────────────────
 
-let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer =
-    use bgBrush = new SolidBrush(Color.FromArgb(10, 10, 30))
-    g.FillRectangle(bgBrush, 0.0f, 0.0f, width, height)
+let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer gamepadOn =
+    g.FillRectangle(solidBrush (Color.FromArgb(10, 10, 30)), 0.0f, 0.0f, width, height)
 
     let scale = min (width / OrigW) (height / OrigH)
     let struct (bigSize, medSize, smallSize) = mkFonts scale
-    use bigFont = new Font("Consolas", bigSize, FontStyle.Bold)
-    use medFont = new Font("Consolas", medSize, FontStyle.Regular)
-    use smallFont = new Font("Consolas", smallSize, FontStyle.Regular)
-    use whiteBrush = new SolidBrush(Color.White)
-    use yellowBrush = new SolidBrush(goalFlashColor)
-    use grayBrush = new SolidBrush(Color.FromArgb(140, 140, 140))
-    use t1Brush = new SolidBrush(team1Color)
-    use t2Brush = new SolidBrush(team2Color)
+    let bigFont = fontFor bigSize FontStyle.Bold
+    let medFont = fontFor medSize FontStyle.Regular
+    let smallFont = fontFor smallSize FontStyle.Regular
+    let whiteBrush = solidBrush Color.White
+    let yellowBrush = solidBrush goalFlashColor
+    let grayBrush = solidBrush (Color.FromArgb(140, 140, 140))
 
     // Title + subtitle
     drawCentered g bigFont yellowBrush width (height * 0.06f) "THE FS HOCKEY LEAGUE"
@@ -553,42 +581,42 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
     let col2X = width * 0.54f
     let listY = height * 0.22f
 
-    let drawColumn colX (headerText: string) (headerBrush: SolidBrush) selectedIdx isActive =
-        use headerFont = new Font("Consolas", medSize, FontStyle.Bold)
-        g.DrawString(headerText, headerFont, headerBrush, colX, listY)
+    let drawColumn colX (headerText: string) (headerColor: Color) selectedIdx isActive =
+        let headerFont = fontFor medSize FontStyle.Bold
+        g.DrawString(headerText, headerFont, solidBrush headerColor, colX, listY)
 
         if isActive then
-            use activePen = new Pen(headerBrush.Color, 1.5f)
             let boxH = medSize * 1.3f + float32 NumTeams * smallSize * 1.6f + 6.0f
-            g.DrawRectangle(activePen, colX - 3.0f, listY - 2.0f, colW, boxH)
+            g.DrawRectangle(penFor headerColor 1.5f, colX - 3.0f, listY - 2.0f, colW, boxH)
 
         for i in 0 .. NumTeams - 1 do
             let ty = listY + medSize * 1.5f + float32 i * smallSize * 1.6f
             let isSelected = (i = selectedIdx)
 
             if isSelected then
-                use selBrush = new SolidBrush(Color.FromArgb(40, 60, 100))
-                g.FillRectangle(selBrush, colX, ty - 1.0f, colW - 6.0f, smallSize * 1.4f)
+                g.FillRectangle(solidBrush (Color.FromArgb(40, 60, 100)), colX, ty - 1.0f, colW - 6.0f, smallSize * 1.4f)
 
-            let brush: Brush = if isSelected then yellowBrush else whiteBrush
+            let brush = if isSelected then yellowBrush else whiteBrush
             let prefix = if isSelected then "> " else "  "
             g.DrawString($"{prefix}{teamNames.[i]}", smallFont, brush, colX + 4.0f, ty)
 
-    drawColumn col1X "TEAM 1 (LEFT)" t1Brush selectedTeam1 (activeColumn = 0)
-    drawColumn col2X "TEAM 2 (RIGHT)" t2Brush selectedTeam2 (activeColumn = 1)
+    drawColumn col1X "TEAM 1 (LEFT)" team1Color selectedTeam1 (activeColumn = 0)
+    drawColumn col2X "TEAM 2 (RIGHT)" team2Color selectedTeam2 (activeColumn = 1)
 
     // Instructions
     let fastStr = if fastHuman then "ON" else "OFF"
     let hardStr = if hardMode then "ON" else "OFF"
     let fiveStr = if fivePlayer then "6v6" else "3v3"
+    let padStr = if gamepadOn then "ON" else "OFF"
 
     let instrLines =
         [| "UP/DOWN = Select Team  |  TAB = Switch Column"
            "ENTER = Start Game  |  L = Play League  |  ESC = Quit"
            $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
+           $"G = Gamepad [{padStr}]"
            "Hold shoot key longer for harder shot, quick tap for a pass"
-           "Player 1: Arrow Keys + Shift/Enter to shoot"
-           "Player 2: WASD + Space/Tab to shoot"
+           "Player 1: Arrow Keys + Shift/Enter, or Gamepad 1"
+           "Player 2: WASD + Space/Tab, or Gamepad 2"
            "(Set team to HUMAN PLAYER for keyboard control)" |]
 
     let baseY = height * 0.7f
@@ -616,8 +644,7 @@ let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
     let sx = s * par
     let sy = s
 
-    use bgBrush = new SolidBrush(Color.FromArgb(30, 30, 50))
-    g.FillRectangle(bgBrush, 0.0f, 0.0f, w, h)
+    g.FillRectangle(solidBrush (Color.FromArgb(30, 30, 50)), 0.0f, 0.0f, w, h)
 
     // HUD is anchored to the bottom edge; the rink is centered in the space
     // above it (horizontally, and vertically on very wide windows).
@@ -636,7 +663,7 @@ let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
         if mark.Life > 0<tick> then
             let alpha = int (float (int mark.Life) / float (int TrailMarkLifetime) * 180.0) + 40
             let alpha = min 220 alpha
-            use trailBrush = new SolidBrush(Color.FromArgb(alpha, 255, 255, 255))
+            let trailBrush = solidBrush (Color.FromArgb(alpha, 255, 255, 255))
             let mx = gameX sx mark.X
             let my = gameY sy mark.Y
             let r = 1.2f * sx
