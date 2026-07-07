@@ -33,6 +33,7 @@ type AppState =
       mutable HardMode: bool
       mutable FivePlayerMode: bool
       mutable GamepadEnabled: bool
+      mutable Paused: bool
       mutable League: LeagueState option }
 
 let createAppState () =
@@ -45,6 +46,7 @@ let createAppState () =
       HardMode = false
       FivePlayerMode = false
       GamepadEnabled = true
+      Paused = false
       League = None }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -108,6 +110,7 @@ let startLeagueMatch (app: AppState) =
         setPlayerMode gs app.FivePlayerMode
         setTeamSpeeds app
         initMatch gs
+        app.Paused <- false
         app.Mode <- LeaguePlaying
 
 /// Start an exhibition match
@@ -121,6 +124,7 @@ let startExhibitionMatch (app: AppState) =
     setPlayerMode gs app.FivePlayerMode
     setTeamSpeeds app
     initMatch gs
+    app.Paused <- false
     app.Mode <- Playing
 
 /// Is the match over?
@@ -287,20 +291,25 @@ type HockeyGame() as this =
                 this.Exit()
 
         | Playing ->
-            mapPlayer1Keys gs ks
-            mapPlayer2Keys gs ks
+            if this.IsKeyPressed(Keys.P, ks) then
+                app.Paused <- not app.Paused
 
-            if app.GamepadEnabled then
-                gs.Input1 <- mergeInput gs.Input1 (gamepadInput PlayerIndex.One)
-                gs.Input2 <- mergeInput gs.Input2 (gamepadInput PlayerIndex.Two)
+            if not app.Paused then
+                mapPlayer1Keys gs ks
+                mapPlayer2Keys gs ks
 
-            for _ in 1..PhysicsTicksPerFrame do
-                gameTick gs
+                if app.GamepadEnabled then
+                    gs.Input1 <- mergeInput gs.Input1 (gamepadInput PlayerIndex.One)
+                    gs.Input2 <- mergeInput gs.Input2 (gamepadInput PlayerIndex.Two)
 
-            gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
+                for _ in 1..PhysicsTicksPerFrame do
+                    gameTick gs
+
+                gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
 
             if this.IsKeyPressed(Keys.Escape, ks) then
                 app.Mode <- Menu
+                app.Paused <- false
 
             if this.IsKeyPressed(Keys.Space, ks) && matchOver gs then
                 app.Mode <- Menu
@@ -314,15 +323,19 @@ type HockeyGame() as this =
                 app.Mode <- Menu
 
         | LeaguePlaying ->
-            mapPlayer1Keys gs ks
+            if this.IsKeyPressed(Keys.P, ks) then
+                app.Paused <- not app.Paused
 
-            if app.GamepadEnabled then
-                gs.Input1 <- mergeInput gs.Input1 (gamepadInput PlayerIndex.One)
+            if not app.Paused then
+                mapPlayer1Keys gs ks
 
-            for _ in 1..PhysicsTicksPerFrame do
-                gameTick gs
+                if app.GamepadEnabled then
+                    gs.Input1 <- mergeInput gs.Input1 (gamepadInput PlayerIndex.One)
 
-            gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
+                for _ in 1..PhysicsTicksPerFrame do
+                    gameTick gs
+
+                gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
 
             if this.IsKeyPressed(Keys.Space, ks) && matchOver gs then
                 match app.League with
@@ -377,7 +390,11 @@ type HockeyGame() as this =
                 app.FivePlayerMode
                 app.GamepadEnabled
 
-        | Playing -> renderFrame spriteBatch gs w h false
+        | Playing ->
+            renderFrame spriteBatch gs w h false
+
+            if app.Paused then
+                drawPauseOverlay spriteBatch fw fh
 
         | LeagueMatchup ->
             match app.League with
@@ -394,7 +411,11 @@ type HockeyGame() as this =
                     teamNames.[t2]
             | None -> ()
 
-        | LeaguePlaying -> renderFrame spriteBatch gs w h true
+        | LeaguePlaying ->
+            renderFrame spriteBatch gs w h true
+
+            if app.Paused then
+                drawPauseOverlay spriteBatch fw fh
 
         | LeagueStandings ->
             app.League
