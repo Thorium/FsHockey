@@ -340,15 +340,15 @@ let drawRetroPlayer (sb: SpriteBatch) sx sy (offX: float32) (offY: float32) (ent
 
 // ─── Draw Puck ────────────────────────────────────────────────────────
 
-let drawPuck (sb: SpriteBatch) sx sy (ball: Entity) (animFrame: int) =
-    let px = gameX sx ball.X
-    let py = gameY sy ball.Y
+let drawPuck (sb: SpriteBatch) sx sy (puck: Entity) (animFrame: int) =
+    let px = gameX sx puck.X
+    let py = gameY sy puck.Y
     let r = 2.5f * sx
 
     fillEllipse sb px py r r puckColor
 
     // Spinning highlight: orbits the puck center once per animation cycle
-    let phase = float32 animFrame / float32 (BallAnimFrames * 2) * (2.0f * float32 System.Math.PI)
+    let phase = float32 animFrame / float32 (PuckAnimFrames * 2) * (2.0f * float32 System.Math.PI)
     let hr = r * 0.4f
     let orbit = r * 0.35f
     let hx = px + cos phase * orbit
@@ -601,7 +601,14 @@ let drawMenu (sb: SpriteBatch) width height selectedTeam1 selectedTeam2 activeCo
 
                 let color = if isSelected then goalFlashColor else Color.White
                 let prefix = if isSelected then "> " else "  "
-                drawText smallFont sb $"{prefix}{teamNames.[i]}" (Vector2(colX + 4.0f, ty)) color
+                let label = $"{prefix}{teamNames.[i]}"
+                drawText smallFont sb label (Vector2(colX + 4.0f, ty)) color
+
+                // Team skating speed, dimmed — a hint of how hard a CPU opponent
+                // is, reflecting the current fast-human/hard-mode settings
+                let labelW = smallFont.MeasureString(label).X
+                let spd = displayedTeamSpeed fastHuman hardMode i
+                drawText smallFont sb $" (speed {spd})" (Vector2(colX + 4.0f + labelW, ty)) (Color(105, 105, 125))
 
         drawColumn col1X "TEAM 1 (LEFT)" team1Color selectedTeam1 (activeColumn = 0)
         drawColumn col2X "TEAM 2 (RIGHT)" team2Color selectedTeam2 (activeColumn = 1)
@@ -690,7 +697,7 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
     let t2Helmet = if gs.Team2Idx = 0 then helmetGold else helmetBlack
 
     // Puck drawn UNDER players so skaters appear on top of it
-    drawPuck sb sx sy gs.Entities.[gs.BallIdx] gs.BallAnimFrame
+    drawPuck sb sx sy gs.Entities.[gs.PuckIdx] gs.PuckAnimFrame
 
     // Team 1 players
     for i in 0 .. ppt - 1 do

@@ -1,5 +1,5 @@
 /// THE FS HOCKEY LEAGUE — Game Logic
-/// Entity update, AI, human input, collision, ball physics, scoring.
+/// Entity update, AI, human input, collision, puck physics, scoring.
 /// Taking influence from Solar Hockey by Galifir Developments (Harm Hanemaayer & John Remyn, 1990-1992)
 module HockeyDemo.Game
 
@@ -20,7 +20,7 @@ type Entity =
       mutable ShotPower: float<subpx / tick> }
 
 [<Struct>]
-type BallState =
+type PuckState =
     | Free
     | HeldBy of entityIdx: int
 
@@ -78,19 +78,19 @@ type GameState =
       mutable Team2Score: int
       mutable ClockSeconds: int<sec>
       mutable ClockTick: int<tick>
-      mutable BallState: BallState
+      mutable PuckState: PuckState
       mutable PossessionTimer: int<tick>
-      // Shot re-capture cooldown: after a player releases the ball, that
+      // Shot re-capture cooldown: after a player releases the puck, that
       // player (and only that player) cannot re-capture it for a short
       // window, so you cannot pass to yourself.
       mutable LastReleaser: int
       mutable RecaptureBlockTicks: int<tick>
       mutable StalemateCounter: int<tick>
-      mutable PrevBallState: BallState
+      mutable PrevPuckState: PuckState
       mutable ActivePlayer1: int
       mutable ActivePlayer2: int
-      mutable BallAnimFrame: int
-      mutable BallFrictionCounter: int
+      mutable PuckAnimFrame: int
+      mutable PuckFrictionCounter: int
       mutable GameTick: int<tick>
       mutable Playing: bool
       mutable GoalFlashTimer: int<tick>
@@ -116,6 +116,10 @@ type GameState =
       mutable FireHoldTicks2: int<tick>
       // Stick animation timer per entity
       mutable StickAnimTimers: int array
+      // AI wander: per-player random target offset, re-rolled periodically
+      WanderX: float<px> array
+      WanderY: float<px> array
+      mutable WanderTimer: int<tick>
       // Ice trail: skate marks from tight turns
       TrailMarks: TrailMark array
       mutable TrailMarkCount: int
@@ -127,7 +131,7 @@ type GameState =
     // fields so they cannot drift out of sync with PlayersPerTeam.
     member s.NumPlayers = s.PlayersPerTeam * 2
     member s.Team2Start = s.PlayersPerTeam
-    member s.BallIdx = s.PlayersPerTeam * 2
+    member s.PuckIdx = s.PlayersPerTeam * 2
     member s.NumEntities = s.PlayersPerTeam * 2 + 1
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -145,9 +149,9 @@ let playerRole (fivePlayer: bool) (localIdx: int) =
 /// Is the entity on team 1?
 let inline isOnTeam1 (gs: GameState) idx = idx < gs.Team2Start
 
-/// Does the given team own the ball?
-let teamOwnsBall (gs: GameState) isTeam1 =
-    match gs.BallState with
+/// Does the given team own the puck?
+let teamOwnsPuck (gs: GameState) isTeam1 =
+    match gs.PuckState with
     | HeldBy owner ->
         if isTeam1 then
             isOnTeam1 gs owner
@@ -155,11 +159,11 @@ let teamOwnsBall (gs: GameState) isTeam1 =
             not (isOnTeam1 gs owner)
     | Free -> false
 
-/// Does the opponent team own the ball?
-let opponentOwnsBall (gs: GameState) isTeam1 = teamOwnsBall gs (not isTeam1)
+/// Does the opponent team own the puck?
+let opponentOwnsPuck (gs: GameState) isTeam1 = teamOwnsPuck gs (not isTeam1)
 
 /// Sign-based velocity from a direction component
-let inline private dirToVel (dir: float) (power: float<subpx / tick>) =
+let private dirToVel (dir: float) (power: float<subpx / tick>) =
     if dir > 0.0 then power
     elif dir < 0.0 then -power
     else zeroVel
@@ -185,7 +189,7 @@ let createGameState () : GameState =
             if i < MaxPlayersPerTeam * 2 then
                 createEntity zeroVel ForwardAccel zeroVel
             else
-                createEntity BallMaxSpeed zeroVel zeroVel)
+                createEntity PuckMaxSpeed zeroVel zeroVel)
 
     { Entities = ents
       Rng = Random()
@@ -193,16 +197,16 @@ let createGameState () : GameState =
       Team2Score = 0
       ClockSeconds = 0<sec>
       ClockTick = 0<tick>
-      BallState = Free
+      PuckState = Free
       PossessionTimer = 0<tick>
       LastReleaser = -1
       RecaptureBlockTicks = 0<tick>
       StalemateCounter = 0<tick>
-      PrevBallState = Free
+      PrevPuckState = Free
       ActivePlayer1 = 0
       ActivePlayer2 = ppt
-      BallAnimFrame = BallAnimFrames
-      BallFrictionCounter = BallAnimFrames
+      PuckAnimFrame = PuckAnimFrames
+      PuckFrictionCounter = PuckAnimFrames
       GameTick = 0<tick>
       Playing = false
       GoalFlashTimer = 0<tick>
@@ -222,6 +226,9 @@ let createGameState () : GameState =
       FireHoldTicks1 = 0<tick>
       FireHoldTicks2 = 0<tick>
       StickAnimTimers = Array.zeroCreate MaxEntities
+      WanderX = Array.zeroCreate MaxEntities
+      WanderY = Array.zeroCreate MaxEntities
+      WanderTimer = 0<tick>
       TrailMarks = Array.init MaxTrailMarks (fun _ -> { X = 0.0<px>; Y = 0.0<px>; Life = 0<tick> })
       TrailMarkCount = 0
       TrailMarkHead = 0
@@ -237,11 +244,11 @@ let setPlayerMode (gs: GameState) fivePlayer =
     // Entity indices change between modes — drop any stale re-capture block
     gs.LastReleaser <- -1
     gs.RecaptureBlockTicks <- 0<tick>
-    // Ensure ball entity has correct stats
-    let ball = gs.Entities.[gs.BallIdx]
-    ball.MaxSpeed <- BallMaxSpeed
-    ball.Accel <- zeroVel
-    ball.ShotPower <- zeroVel
+    // Ensure puck entity has correct stats
+    let puck = gs.Entities.[gs.PuckIdx]
+    puck.MaxSpeed <- PuckMaxSpeed
+    puck.Accel <- zeroVel
+    puck.ShotPower <- zeroVel
 
 // ─── Position Reset ────────────────────────────────────────────────────
 
@@ -263,19 +270,22 @@ let resetPositions (gs: GameState) =
         resetTeamPositions gs 0 team1HomeX team1HomeY 1.0
         resetTeamPositions gs gs.Team2Start team2HomeX team2HomeY -1.0
 
-    let ball = gs.Entities.[gs.BallIdx]
-    ball.X <- CenterX
-    ball.Y <- CenterY
-    ball.VelX <- zeroVel
-    ball.VelY <- zeroVel
-    gs.BallState <- Free
+    let puck = gs.Entities.[gs.PuckIdx]
+    // Small random jitter so faceoff races aren't decided the same way
+    // every time (with exact spawn + symmetric positions it's always a tie,
+    // and ties break by entity index — i.e. always toward team 1)
+    puck.X <- CenterX + (gs.Rng.NextDouble() * 2.0 - 1.0) * 6.0<px>
+    puck.Y <- CenterY + (gs.Rng.NextDouble() * 2.0 - 1.0) * 6.0<px>
+    puck.VelX <- zeroVel
+    puck.VelY <- zeroVel
+    gs.PuckState <- Free
     gs.PossessionTimer <- 0<tick>
     gs.LastReleaser <- -1
     gs.RecaptureBlockTicks <- 0<tick>
     gs.StalemateCounter <- 0<tick>
-    gs.PrevBallState <- Free
-    gs.BallAnimFrame <- BallAnimFrames
-    gs.BallFrictionCounter <- BallAnimFrames
+    gs.PrevPuckState <- Free
+    gs.PuckAnimFrame <- PuckAnimFrames
+    gs.PuckFrictionCounter <- PuckAnimFrames
 
 // ─── Init Match ────────────────────────────────────────────────────────
 
@@ -297,17 +307,17 @@ let initMatch (gs: GameState) =
     gs.ActivePlayer2 <- gs.Team2Start + skipGoalie
     resetPositions gs
 
-// ─── Find Nearest Player to Ball ───────────────────────────────────────
+// ─── Find Nearest Player to Puck ───────────────────────────────────────
 
-let findNearestToBall (gs: GameState) startIdx endIdx =
-    let ball = gs.Entities.[gs.BallIdx]
+let findNearestToPuck (gs: GameState) startIdx endIdx =
+    let puck = gs.Entities.[gs.PuckIdx]
     let mutable bestDist = Double.MaxValue
     let mutable bestIdx = startIdx
 
     for i in startIdx..endIdx do
         let e = gs.Entities.[i]
-        let dx = float (e.X - ball.X)
-        let dy = float (e.Y - ball.Y)
+        let dx = float (e.X - puck.X)
+        let dy = float (e.Y - puck.Y)
         let d = dx * dx + dy * dy
 
         if d < bestDist then
@@ -316,27 +326,27 @@ let findNearestToBall (gs: GameState) startIdx endIdx =
 
     bestIdx
 
-// ─── Release Ball (kick/shoot) ─────────────────────────────────────────
+// ─── Release Puck (kick/shoot) ─────────────────────────────────────────
 
-/// Ticks a player is blocked from re-capturing the ball after releasing it.
+/// Ticks a player is blocked from re-capturing the puck after releasing it.
 /// 18 ticks = 0.3 s at the ~60 Hz physics rate (30 FPS x 2 physics ticks
-/// per frame). Prevents shooting and immediately picking the ball back up.
+/// per frame). Prevents shooting and immediately picking the puck back up.
 let RecaptureCooldownTicks = 18<tick>
 
 /// powerFrac: 0.0..1.0 — fraction of the match's ShotSpeed (pass vs full shot)
-let releaseBall (gs: GameState) entityIdx (powerFrac: float) =
+let releasePuck (gs: GameState) entityIdx (powerFrac: float) =
     let ent = gs.Entities.[entityIdx]
-    let ball = gs.Entities.[gs.BallIdx]
+    let puck = gs.Entities.[gs.PuckIdx]
     let power = gs.ShotSpeed * powerFrac
     ent.VelX <- zeroVel
     ent.VelY <- zeroVel
-    ball.VelX <- dirToVel ent.DirX power
-    ball.VelY <- dirToVel ent.DirY power
-    gs.BallState <- Free
-    gs.BallAnimFrame <- BallAnimFrames
-    gs.BallFrictionCounter <- BallAnimFrames
+    puck.VelX <- dirToVel ent.DirX power
+    puck.VelY <- dirToVel ent.DirY power
+    gs.PuckState <- Free
+    gs.PuckAnimFrame <- PuckAnimFrames
+    gs.PuckFrictionCounter <- PuckAnimFrames
     // Block the releaser (and only them) from re-capturing for a short
-    // window, starting the very tick the ball leaves the stick.
+    // window, starting the very tick the puck leaves the stick.
     gs.LastReleaser <- entityIdx
     gs.RecaptureBlockTicks <- RecaptureCooldownTicks
     gs.StickAnimTimers.[entityIdx] <- 10
@@ -364,14 +374,14 @@ let clampVel (ent: Entity) =
 
 let checkWallsAndGoals (gs: GameState) idx =
     let ent = gs.Entities.[idx]
-    let isBall = (idx = gs.BallIdx)
+    let isPuck = (idx = gs.PuckIdx)
     let mutable scored = false
 
     let inGoalY () = ent.Y >= GoalTop && ent.Y <= GoalBottom
 
     // Left wall / left goal
     if ent.VelX < zeroVel && ent.X <= FieldLeft then
-        if isBall && inGoalY () then
+        if isPuck && inGoalY () then
             gs.Team2Score <- gs.Team2Score + 1
             gs.GoalFlashTimer <- 90<tick>
             gs.GoalScoredBy <- Team2Scored
@@ -379,7 +389,7 @@ let checkWallsAndGoals (gs: GameState) idx =
         else
             ent.X <- FieldLeft
             ent.VelX <- abs ent.VelX
-    elif ent.X <= FieldLeft && not isBall then
+    elif ent.X <= FieldLeft && not isPuck then
         ent.X <- FieldLeft
 
         if ent.VelX < zeroVel then
@@ -387,7 +397,7 @@ let checkWallsAndGoals (gs: GameState) idx =
 
     // Right wall / right goal
     if ent.VelX > zeroVel && ent.X >= FieldRight then
-        if isBall && inGoalY () then
+        if isPuck && inGoalY () then
             gs.Team1Score <- gs.Team1Score + 1
             gs.GoalFlashTimer <- 90<tick>
             gs.GoalScoredBy <- Team1Scored
@@ -395,7 +405,7 @@ let checkWallsAndGoals (gs: GameState) idx =
         else
             ent.X <- FieldRight
             ent.VelX <- -(abs ent.VelX)
-    elif ent.X >= FieldRight && not isBall then
+    elif ent.X >= FieldRight && not isPuck then
         ent.X <- FieldRight
 
         if ent.VelX > zeroVel then
@@ -411,7 +421,7 @@ let checkWallsAndGoals (gs: GameState) idx =
         ent.VelY <- -(abs ent.VelY)
 
     // Clamp safety
-    if not isBall || not scored then
+    if not isPuck || not scored then
         ent.X <- clamp FieldLeft FieldRight ent.X
 
     ent.Y <- clamp FieldTop FieldBottom ent.Y
@@ -448,7 +458,7 @@ let applyHumanInput (gs: GameState) idx (input: Input) (fireHoldTicks: int<tick>
         ent.DirY <- dy
 
     // Charge mechanic: hold fire key for harder shot, release to fire
-    match gs.BallState with
+    match gs.PuckState with
     | HeldBy owner when owner = idx ->
         if input.Fire then
             fireHoldTicks <- fireHoldTicks + 1<tick>
@@ -456,7 +466,7 @@ let applyHumanInput (gs: GameState) idx (input: Input) (fireHoldTicks: int<tick>
             let t = float (int fireHoldTicks) / float (int ChargeTicksForFull)
             let chargeFrac = PassPowerFraction + (1.0 - PassPowerFraction) * (min 1.0 t)
             fireHoldTicks <- 0<tick>
-            releaseBall gs idx chargeFrac
+            releasePuck gs idx chargeFrac
     | _ -> fireHoldTicks <- 0<tick>
 
 // ─── AI: Move toward target ────────────────────────────────────────────
@@ -482,26 +492,157 @@ let aiMoveToward (ent: Entity) (targetX: float<px>) (targetY: float<px>) =
 
 // ─── AI: Active Player Logic ───────────────────────────────────────────
 
+/// Nearest opposing skater to entity `idx` (goalie excluded in 5-player
+/// mode: it never leaves the crease, so it doesn't apply pressure).
+/// Returns (opponent index, distance in px as float).
+let private nearestOpponent (gs: GameState) idx isTeam1 =
+    let ent = gs.Entities.[idx]
+    let skipGoalie = if gs.FivePlayerMode then 1 else 0
+    let oppStart = if isTeam1 then gs.Team2Start else 0
+    let mutable bestDistSq = Double.MaxValue
+    let mutable bestIdx = oppStart + skipGoalie
+
+    for i in oppStart + skipGoalie .. oppStart + gs.PlayersPerTeam - 1 do
+        let o = gs.Entities.[i]
+        let dx = float (o.X - ent.X)
+        let dy = float (o.Y - ent.Y)
+        let d = dx * dx + dy * dy
+
+        if d < bestDistSq then
+            bestDistSq <- d
+            bestIdx <- i
+
+    bestIdx, sqrt bestDistSq
+
+/// Pick a teammate worth passing to: within pass range, unmarked, and not
+/// far behind the carrier; prefer the most forward-positioned candidate.
+let private tryFindPassMate (gs: GameState) idx isTeam1 =
+    let ent = gs.Entities.[idx]
+    let goalDir = if isTeam1 then 1.0 else -1.0
+    let skipGoalie = if gs.FivePlayerMode then 1 else 0
+    let startEnt = if isTeam1 then 0 else gs.Team2Start
+    let mutable best = -1
+    let mutable bestForward = -20.0 // allow a slight drop pass, nothing deeper
+
+    for i in skipGoalie .. gs.PlayersPerTeam - 1 do
+        let ei = startEnt + i
+
+        if ei <> idx then
+            let mate = gs.Entities.[ei]
+            let dx = float (mate.X - ent.X)
+            let dy = float (mate.Y - ent.Y)
+            let dist = sqrt (dx * dx + dy * dy)
+
+            if dist >= float AiPassMinDist && dist <= float AiPassMaxDist then
+                let _, oppDist = nearestOpponent gs ei isTeam1
+
+                if oppDist > float AiMateOpenDist then
+                    let forward = dx * goalDir
+
+                    if forward > bestForward then
+                        bestForward <- forward
+                        best <- ei
+
+    if best >= 0 then Some best else None
+
+/// Aim at a teammate (8-way, since the puck leaves along DirX/DirY) and pass.
+let private aiPassTo (gs: GameState) idx mateIdx =
+    let ent = gs.Entities.[idx]
+    let mate = gs.Entities.[mateIdx]
+    let dx = float (mate.X - ent.X)
+    let dy = float (mate.Y - ent.Y)
+    let adx = abs dx
+    let ady = abs dy
+    // Closest of the 8 directions: pure axis when within ~22.5° of it
+    if adx > 2.414 * ady then
+        ent.DirX <- float (sign dx)
+        ent.DirY <- 0.0
+    elif ady > 2.414 * adx then
+        ent.DirX <- 0.0
+        ent.DirY <- float (sign dy)
+    else
+        ent.DirX <- float (sign dx)
+        ent.DirY <- float (sign dy)
+
+    releasePuck gs idx AiPassPowerFraction
+
 let aiActivePlayer (gs: GameState) idx isTeam1 =
     let ent = gs.Entities.[idx]
-    let ball = gs.Entities.[gs.BallIdx]
+    let puck = gs.Entities.[gs.PuckIdx]
     let goalDir = if isTeam1 then 1.0 else -1.0
 
-    match gs.BallState with
-    | Free -> aiMoveToward ent ball.X ball.Y
+    match gs.PuckState with
+    | Free -> aiMoveToward ent puck.X puck.Y
 
     | HeldBy owner when owner = idx ->
+        let oppIdx, oppDist = nearestOpponent gs idx isTeam1
+        let opp = gs.Entities.[oppIdx]
+        // Blocking = close AND on the goal side of the carrier (roughly
+        // between the carrier and the target goal)
+        let goalSide = float (opp.X - ent.X) * goalDir > -6.0
+        let blocked = oppDist < float AiBlockDist && goalSide
+        let pressured = oppDist < float AiPressureDist
+
         let inShootZone =
             if isTeam1 then
                 ent.X > FieldRight - AiShootZoneX
             else
-                ent.X < AiShootZoneX
+                ent.X < FieldLeft + AiShootZoneX
 
-        if inShootZone && ent.Y >= GoalTop && ent.Y <= GoalBottom then
+        let alignedWithGoal = ent.Y >= GoalTop && ent.Y <= GoalBottom
+
+        // Fresh possession: for the first couple of seconds the carrier
+        // rushes toward the opponent goal instead of passing or backing off
+        let rushing = gs.PossessionTimer > PossessionTimer - AiInitialRushTicks
+
+        if inShootZone && alignedWithGoal && not blocked then
+            // Clear look at the goal: shoot — but not with perfect aim; a
+            // fair share of shots go off diagonally and miss from range
             ent.DirX <- goalDir
-            ent.DirY <- 0.0
-            releaseBall gs idx 1.0
-        elif gs.PossessionTimer |> AiShootCheckpoints.Contains then
+
+            ent.DirY <-
+                let r = gs.Rng.Next(100)
+                if r < 20 then 1.0
+                elif r < 40 then -1.0
+                else 0.0
+
+            releasePuck gs idx 1.0
+        elif rushing then
+            let targetX =
+                if isTeam1 then FieldRight - AiCarryTargetMargin
+                else FieldLeft + AiCarryTargetMargin
+
+            let lane =
+                if blocked || pressured then
+                    // swerve around the defender while still advancing
+                    if opp.Y > ent.Y then ent.Y - 28.0<px> else ent.Y + 28.0<px>
+                else
+                    ent.Y + gs.WanderY.[idx] * 1.5
+
+            let targetY =
+                if inShootZone then
+                    clamp (GoalTop + 8.0<px>) (GoalBottom - 8.0<px>) lane
+                else
+                    clamp (FieldTop + 12.0<px>) (FieldBottom - 12.0<px>) lane
+
+            aiMoveToward ent targetX targetY
+        elif pressured then
+            // Opponent right on us: pass if someone is open, otherwise
+            // skate a bit backwards and sideways to find a better spot
+            match tryFindPassMate gs idx isTeam1 with
+            | Some mateIdx -> aiPassTo gs idx mateIdx
+            | None ->
+                let backX = ent.X - goalDir * 20.0<px>
+                let sideY =
+                    if opp.Y > ent.Y then ent.Y - 24.0<px> else ent.Y + 24.0<px>
+
+                aiMoveToward
+                    ent
+                    (clamp FieldLeft FieldRight backX)
+                    (clamp FieldTop FieldBottom sideY)
+        elif gs.PossessionTimer <= AiForcedShotTimer then
+            // Held long enough — get a shot away before the possession
+            // timer force-releases the puck in a random direction
             let rndY = float (gs.Rng.Next(int AiRandomShot * 2 + 1)) - AiRandomShot
             ent.DirX <- goalDir
 
@@ -510,30 +651,82 @@ let aiActivePlayer (gs: GameState) idx isTeam1 =
                 elif rndY < -3.0 then -1.0
                 else 0.0
 
-            releaseBall gs idx 1.0
+            releasePuck gs idx 1.0
+        elif blocked then
+            // Blocker ahead but not on us yet: pass if a mate is open,
+            // otherwise dodge laterally around the blocker, keeping the puck
+            match tryFindPassMate gs idx isTeam1 with
+            | Some mateIdx -> aiPassTo gs idx mateIdx
+            | None ->
+                let sideY =
+                    if opp.Y > ent.Y then ent.Y - 28.0<px> else ent.Y + 28.0<px>
+
+                aiMoveToward
+                    ent
+                    (clamp FieldLeft FieldRight (ent.X + goalDir * 8.0<px>))
+                    (clamp FieldTop FieldBottom sideY)
         else
-            let targetX = if isTeam1 then FieldRight else FieldLeft
-            let targetY = clamp (GoalTop + 10.0<px>) (GoalBottom - 10.0<px>) ent.Y
+            // Open ice: carry toward the opponent end, weaving a random
+            // route via the wander offset; funnel toward the goal mouth
+            // once inside the shooting zone
+            let targetX =
+                if isTeam1 then FieldRight - AiCarryTargetMargin
+                else FieldLeft + AiCarryTargetMargin
+
+            let lane = ent.Y + gs.WanderY.[idx] * 1.5
+
+            let targetY =
+                if inShootZone then
+                    clamp (GoalTop + 8.0<px>) (GoalBottom - 8.0<px>) lane
+                else
+                    clamp (FieldTop + 12.0<px>) (FieldBottom - 12.0<px>) lane
+
             aiMoveToward ent targetX targetY
 
     | HeldBy _ ->
-        if opponentOwnsBall gs isTeam1 then
-            aiMoveToward ent ball.X ball.Y
+        if opponentOwnsPuck gs isTeam1 then
+            aiMoveToward ent puck.X puck.Y
         else
-            let supportX = if isTeam1 then ball.X - 30.0<px> else ball.X + 30.0<px>
-            aiMoveToward ent (clamp FieldLeft FieldRight supportX) ball.Y
+            let supportX =
+                (if isTeam1 then puck.X - 30.0<px> else puck.X + 30.0<px>)
+                + gs.WanderX.[idx]
+
+            let supportY =
+                clamp FieldTop FieldBottom (puck.Y + gs.WanderY.[idx])
+
+            aiMoveToward ent (clamp FieldLeft FieldRight supportX) supportY
 
 // ─── AI: Defender Logic ────────────────────────────────────────────────
 
 let aiDefender (gs: GameState) idx isTeam1 =
     let ent = gs.Entities.[idx]
     let localIdx = if isTeam1 then idx else idx - gs.Team2Start
-    let hasBall = teamOwnsBall gs isTeam1
+    let hasPuck = teamOwnsPuck gs isTeam1
+
+    if not gs.FivePlayerMode && opponentOwnsPuck gs isTeam1 then
+        // 3v3 has no goalie: non-active players collapse in front of their
+        // own goal (staggered depths) to block the shooting lane
+        let puck = gs.Entities.[gs.PuckIdx]
+
+        // Stand off the crease like defensemen — challenge the shooter,
+        // don't stand in the net
+        let guardX =
+            if isTeam1 then
+                FieldLeft + 24.0<px> + float localIdx * 12.0<px>
+            else
+                FieldRight - 24.0<px> - float localIdx * 12.0<px>
+
+        // Track the puck's Y exactly — this is net-minding duty, wander
+        // here means goals against
+        let guardY = clamp (GoalTop + 4.0<px>) (GoalBottom - 4.0<px>) puck.Y
+
+        aiMoveToward ent guardX guardY
+    else
 
     let homeX, homeY =
         if gs.FivePlayerMode then
             let hx =
-                if hasBall then
+                if hasPuck then
                     (if isTeam1 then team1HomeX5Attack else team2HomeX5Attack).[localIdx]
                 else
                     (if isTeam1 then team1HomeX5 else team2HomeX5).[localIdx]
@@ -542,7 +735,7 @@ let aiDefender (gs: GameState) idx isTeam1 =
             hx, hy
         else
             let hx =
-                if hasBall then
+                if hasPuck then
                     (if isTeam1 then team1HomeXAttack else team2HomeXAttack).[localIdx]
                 else
                     (if isTeam1 then team1HomeX else team2HomeX).[localIdx]
@@ -550,7 +743,10 @@ let aiDefender (gs: GameState) idx isTeam1 =
             let hy = (if isTeam1 then team1HomeY else team2HomeY).[localIdx]
             hx, hy
 
-    aiMoveToward ent homeX homeY
+    // Wander offset so players don't park on exactly the same spot every time
+    let targetX = clamp FieldLeft FieldRight (homeX + gs.WanderX.[idx])
+    let targetY = clamp FieldTop FieldBottom (homeY + gs.WanderY.[idx])
+    aiMoveToward ent targetX targetY
 
 // ─── AI: Goalie Logic (5-player mode, index 0 per team) ──────────────
 // Goalie patrols a square zone in front of the goal (not just a line).
@@ -585,14 +781,14 @@ let private goalieAutoPass (gs: GameState) goalieIdx isTeam1 =
         else
             goalie.DirX <- if isTeam1 then 1.0 else -1.0
             goalie.DirY <- 0.0
-        releaseBall gs goalieIdx PassPowerFraction
+        releasePuck gs goalieIdx PassPowerFraction
 
 let aiGoalie (gs: GameState) idx isTeam1 =
     let ent = gs.Entities.[idx]
-    let ball = gs.Entities.[gs.BallIdx]
+    let puck = gs.Entities.[gs.PuckIdx]
 
     // Auto-pass when holding puck (pass immediately, no delay)
-    match gs.BallState with
+    match gs.PuckState with
     | HeldBy owner when owner = idx ->
         goalieAutoPass gs idx isTeam1
     | _ -> ()
@@ -600,103 +796,113 @@ let aiGoalie (gs: GameState) idx isTeam1 =
     // Movement: square zone in front of goal (like real crease)
     // Goalie tracks puck Y, but allowed forward shift depends on game situation:
     //   - Opponent has puck: stay very close to goal line (minimal forward shift)
-    //   - Ball free: moderate forward shift
+    //   - Puck free: moderate forward shift
     //   - Team has puck: can come out a bit more
     let baseX = if isTeam1 then GoaliePatrolXLeft else GoaliePatrolXRight
     let forwardShift =
-        if opponentOwnsBall gs isTeam1 then 6.0<px>     // stay deep
-        elif teamOwnsBall gs isTeam1 then 14.0<px>       // come out a bit
+        if opponentOwnsPuck gs isTeam1 then 6.0<px>     // stay deep
+        elif teamOwnsPuck gs isTeam1 then 14.0<px>       // come out a bit
         else 10.0<px>                                     // moderate
     let goalieMinX, goalieMaxX =
         if isTeam1 then baseX, baseX + forwardShift
         else baseX - forwardShift, baseX
 
     // Move toward puck but clamped within the crease square
-    let targetX = clamp goalieMinX goalieMaxX ball.X
-    let targetY = clamp (GoalTop + 4.0<px>) (GoalBottom - 4.0<px>) ball.Y
+    let targetX = clamp goalieMinX goalieMaxX puck.X
+    let targetY = clamp (GoalTop + 4.0<px>) (GoalBottom - 4.0<px>) puck.Y
     aiMoveToward ent targetX targetY
 
 // ─── AI: Wing Logic (5-player mode, indices 3-4 per team) ────────────
 
 let aiWing (gs: GameState) idx isTeam1 =
     let ent = gs.Entities.[idx]
-    let ball = gs.Entities.[gs.BallIdx]
+    let puck = gs.Entities.[gs.PuckIdx]
     let localIdx = if isTeam1 then idx else idx - gs.Team2Start
 
-    if teamOwnsBall gs isTeam1 then
+    let wx = gs.WanderX.[idx]
+    let wy = gs.WanderY.[idx]
+
+    if teamOwnsPuck gs isTeam1 then
         let targetX =
             if isTeam1 then
-                clamp (FieldLeft + 40.0<px>) (FieldRight - 20.0<px>) (ball.X + 40.0<px>)
+                clamp (FieldLeft + 40.0<px>) (FieldRight - 20.0<px>) (puck.X + 40.0<px> + wx)
             else
-                clamp (FieldLeft + 20.0<px>) (FieldRight - 40.0<px>) (ball.X - 40.0<px>)
+                clamp (FieldLeft + 20.0<px>) (FieldRight - 40.0<px>) (puck.X - 40.0<px> + wx)
 
         let baseY = (if isTeam1 then team1HomeY5 else team2HomeY5).[localIdx]
-        let targetY = clamp FieldTop FieldBottom baseY
+        let targetY = clamp FieldTop FieldBottom (baseY + wy)
         aiMoveToward ent targetX targetY
-    elif opponentOwnsBall gs isTeam1 then
+    elif opponentOwnsPuck gs isTeam1 then
         let retreatX =
             if isTeam1 then
-                clamp FieldLeft (CenterX - 20.0<px>) (ball.X - 50.0<px>)
+                clamp FieldLeft (CenterX - 20.0<px>) (puck.X - 50.0<px> + wx)
             else
-                clamp (CenterX + 20.0<px>) FieldRight (ball.X + 50.0<px>)
+                clamp (CenterX + 20.0<px>) FieldRight (puck.X + 50.0<px> + wx)
 
-        let targetY = clamp (GoalTop - 10.0<px>) (GoalBottom + 10.0<px>) ball.Y
+        let targetY = clamp (GoalTop - 10.0<px>) (GoalBottom + 10.0<px>) (puck.Y + wy)
         aiMoveToward ent retreatX targetY
     else
         let homeX = (if isTeam1 then team1HomeX5 else team2HomeX5).[localIdx]
         let homeY = (if isTeam1 then team1HomeY5 else team2HomeY5).[localIdx]
-        aiMoveToward ent ((homeX + ball.X) / 2.0) ((homeY + ball.Y) / 2.0)
+        let targetX = clamp FieldLeft FieldRight ((homeX + puck.X) / 2.0 + wx)
+        let targetY = clamp FieldTop FieldBottom ((homeY + puck.Y) / 2.0 + wy)
+        aiMoveToward ent targetX targetY
 
-// ─── Move Ball When Possessed ──────────────────────────────────────────
+// ─── Move Puck When Possessed ──────────────────────────────────────────
 
-let moveBallPossessed (gs: GameState) =
-    match gs.BallState with
+let movePuckPossessed (gs: GameState) =
+    match gs.PuckState with
     | HeldBy owner ->
         let ent = gs.Entities.[owner]
-        let ball = gs.Entities.[gs.BallIdx]
-        ball.X <- ent.X + ent.DirX * 8.0<px>
-        ball.Y <- ent.Y + ent.DirY * 8.0<px>
-        ball.VelX <- zeroVel
-        ball.VelY <- zeroVel
+        let puck = gs.Entities.[gs.PuckIdx]
+        puck.X <- ent.X + ent.DirX * 8.0<px>
+        puck.Y <- ent.Y + ent.DirY * 8.0<px>
+        puck.VelX <- zeroVel
+        puck.VelY <- zeroVel
     | Free -> ()
 
-// ─── Ball Pickup Collision ─────────────────────────────────────────────
+// ─── Puck Pickup Collision ─────────────────────────────────────────────
 
-let checkBallPickup (gs: GameState) =
-    match gs.BallState with
+let checkPuckPickup (gs: GameState) =
+    match gs.PuckState with
     | HeldBy _ -> ()
     | Free ->
-        let ball = gs.Entities.[gs.BallIdx]
+        let puck = gs.Entities.[gs.PuckIdx]
+        // Alternate which team's players are checked first, so that when two
+        // opponents reach the puck on the same tick the tie doesn't always
+        // break toward team 1.
+        let offset = if int gs.GameTick % 2 = 0 then 0 else gs.Team2Start
 
-        let rec tryPickup i =
-            if i < gs.NumPlayers then
+        let rec tryPickup n =
+            if n < gs.NumPlayers then
+                let i = (n + offset) % gs.NumPlayers
                 let ent = gs.Entities.[i]
-                // The player who just released the ball cannot re-capture it
+                // The player who just released the puck cannot re-capture it
                 // during the cooldown; teammates and opponents still can.
                 let blocked = i = gs.LastReleaser && gs.RecaptureBlockTicks > 0<tick>
 
                 if not blocked
-                   && abs (ent.X - ball.X) < CollisionDist
-                   && abs (ent.Y - ball.Y) < CollisionDist then
-                    gs.BallState <- HeldBy i
+                   && abs (ent.X - puck.X) < CollisionDist
+                   && abs (ent.Y - puck.Y) < CollisionDist then
+                    gs.PuckState <- HeldBy i
                     gs.PossessionTimer <- PossessionTimer
-                    ball.VelX <- zeroVel
-                    ball.VelY <- zeroVel
+                    puck.VelX <- zeroVel
+                    puck.VelY <- zeroVel
                 else
-                    tryPickup (i + 1)
+                    tryPickup (n + 1)
 
         tryPickup 0
 
 // ─── Stalemate Detection ──────────────────────────────────────────────
 
 let checkStalemate (gs: GameState) =
-    match gs.PrevBallState, gs.BallState with
+    match gs.PrevPuckState, gs.PuckState with
     | Free, HeldBy _ -> gs.StalemateCounter <- 0<tick>
     | _, Free -> gs.StalemateCounter <- gs.StalemateCounter + 1<tick>
     | HeldBy a, HeldBy b when a <> b -> gs.StalemateCounter <- 0<tick>
     | _ -> gs.StalemateCounter <- gs.StalemateCounter + 1<tick>
 
-    gs.PrevBallState <- gs.BallState
+    gs.PrevPuckState <- gs.PuckState
     gs.StalemateCounter >= StalemateFaceoff
 
 // ─── Game Clock ────────────────────────────────────────────────────────
@@ -770,17 +976,49 @@ let gameTick (gs: GameState) =
             if gs.RecaptureBlockTicks > 0<tick> then
                 gs.RecaptureBlockTicks <- gs.RecaptureBlockTicks - 1<tick>
 
-            // Active player: the holder while a skater has the ball,
-            // otherwise nearest to ball (skip goalie in 5-player mode)
+            // Re-roll each player's AI wander offset periodically
+            gs.WanderTimer <- gs.WanderTimer - 1<tick>
+
+            if gs.WanderTimer <= 0<tick> then
+                gs.WanderTimer <- AiWanderIntervalTicks
+
+                for i in 0 .. gs.NumPlayers - 1 do
+                    gs.WanderX.[i] <- (gs.Rng.NextDouble() * 2.0 - 1.0) * AiWanderRange
+                    gs.WanderY.[i] <- (gs.Rng.NextDouble() * 2.0 - 1.0) * AiWanderRange
+
+            // Active player: the holder while a skater has the puck,
+            // otherwise nearest to puck (skip goalie in 5-player mode).
+            // Human-controlled teams get hysteresis: the marker only jumps
+            // to a teammate clearly closer to the puck, so the player being
+            // steered isn't handed over to the AI on every micro-difference.
             let skipGoalie = if gs.FivePlayerMode then 1 else 0
 
-            let activeFor startIdx =
-                match gs.BallState with
+            let activeFor startIdx currentActive isHuman =
+                match gs.PuckState with
                 | HeldBy owner when owner >= startIdx + skipGoalie && owner < startIdx + ppt -> owner
-                | _ -> findNearestToBall gs (startIdx + skipGoalie) (startIdx + ppt - 1)
+                | _ ->
+                    let nearest = findNearestToPuck gs (startIdx + skipGoalie) (startIdx + ppt - 1)
 
-            gs.ActivePlayer1 <- activeFor 0
-            gs.ActivePlayer2 <- activeFor t2s
+                    if not isHuman
+                       || currentActive < startIdx + skipGoalie
+                       || currentActive >= startIdx + ppt then
+                        nearest
+                    else
+                        let puck = gs.Entities.[gs.PuckIdx]
+
+                        let distToPuck i =
+                            let e = gs.Entities.[i]
+                            let dx = float (e.X - puck.X)
+                            let dy = float (e.Y - puck.Y)
+                            sqrt (dx * dx + dy * dy)
+
+                        if distToPuck nearest < distToPuck currentActive - float AiActiveSwitchMargin then
+                            nearest
+                        else
+                            currentActive
+
+            gs.ActivePlayer1 <- activeFor 0 gs.ActivePlayer1 gs.Team1Human
+            gs.ActivePlayer2 <- activeFor t2s gs.ActivePlayer2 gs.Team2Human
 
             // Process both teams
             processTeam
@@ -800,7 +1038,7 @@ let gameTick (gs: GameState) =
                 &gs.FireHoldTicks2
 
             // Possession timer — auto-shoot when it expires
-            match gs.BallState with
+            match gs.PuckState with
             | HeldBy owner ->
                 gs.PossessionTimer <- gs.PossessionTimer - 1<tick>
 
@@ -808,27 +1046,27 @@ let gameTick (gs: GameState) =
                     let ent = gs.Entities.[owner]
                     let vx = ent.VelX
                     let vy = ent.VelY
-                    releaseBall gs owner 1.0
+                    releasePuck gs owner 1.0
                     ent.VelX <- -vx
                     ent.VelY <- -vy
             | Free -> ()
 
-            // Ball friction: only every 8th tick (when BallFrictionCounter resets)
-            let mutable applyBallFric = false
+            // Puck friction: only every 8th tick (when PuckFrictionCounter resets)
+            let mutable applyPuckFric = false
 
-            match gs.BallState with
-            | HeldBy _ -> moveBallPossessed gs
+            match gs.PuckState with
+            | HeldBy _ -> movePuckPossessed gs
             | Free ->
-                gs.BallFrictionCounter <- gs.BallFrictionCounter - 1
+                gs.PuckFrictionCounter <- gs.PuckFrictionCounter - 1
 
-                if gs.BallFrictionCounter <= 0 then
-                    gs.BallFrictionCounter <- BallAnimFrames
-                    applyBallFric <- true
+                if gs.PuckFrictionCounter <= 0 then
+                    gs.PuckFrictionCounter <- PuckAnimFrames
+                    applyPuckFric <- true
 
-            // Friction: every tick for players, every 8th tick for the free ball
+            // Friction: every tick for players, every 8th tick for the free puck
             for i in 0 .. gs.NumEntities - 1 do
-                if i = gs.BallIdx then
-                    if applyBallFric then
+                if i = gs.PuckIdx then
+                    if applyPuckFric then
                         applyFriction gs.Entities.[i]
                 else
                     applyFriction gs.Entities.[i]
@@ -860,14 +1098,14 @@ let gameTick (gs: GameState) =
                 pushApart t2s ppt
 
             // When a player is (near-)stationary, face toward the puck
-            let ball = gs.Entities.[gs.BallIdx]
+            let puck = gs.Entities.[gs.PuckIdx]
             for i in 0 .. gs.NumEntities - 1 do
-                if i <> gs.BallIdx then
+                if i <> gs.PuckIdx then
                     let ent = gs.Entities.[i]
                     let speedSq = float ent.VelX * float ent.VelX + float ent.VelY * float ent.VelY
                     if speedSq < 4.0 then  // effectively stopped
-                        let dx = float (ball.X - ent.X)
-                        let dy = float (ball.Y - ent.Y)
+                        let dx = float (puck.X - ent.X)
+                        let dy = float (puck.Y - ent.Y)
                         if abs dx > 2.0 || abs dy > 2.0 then
                             ent.DirX <- float (sign dx)
                             ent.DirY <- float (sign dy)
@@ -912,7 +1150,7 @@ let gameTick (gs: GameState) =
                     goalScored <- true
 
             if not goalScored then
-                checkBallPickup gs
+                checkPuckPickup gs
 
                 if checkStalemate gs then
                     resetPositions gs
@@ -964,9 +1202,21 @@ let createTeamStats () =
       GoalsAgainst = 0 }
 
 let createLeagueState humanTeam =
+    let rng = Random()
+    let schedule = generateSchedule NumTeams
+
+    // Shuffle the round order (Fisher-Yates) so the human faces opponents
+    // in a random order each league. Every round is still a full round —
+    // each team plays exactly once per round.
+    for i in schedule.Length - 1 .. -1 .. 1 do
+        let j = rng.Next(i + 1)
+        let tmp = schedule.[i]
+        schedule.[i] <- schedule.[j]
+        schedule.[j] <- tmp
+
     { Stats = Array.init NumTeams (fun _ -> createTeamStats ())
-      Schedule = generateSchedule NumTeams
-      Rng = Random()
+      Schedule = schedule
+      Rng = rng
       CurrentRound = 0
       Finished = false
       HumanTeam = humanTeam }
