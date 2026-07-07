@@ -292,7 +292,7 @@ type HockeyForm() as this =
             for _ in 1..PhysicsTicksPerFrame do
                 gameTick gs
 
-            gs.BallAnimFrame <- (gs.BallAnimFrame + 1) % (BallAnimFrames * 2)
+            gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
         | _ -> ()
 
         panel.Invalidate()

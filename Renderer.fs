@@ -326,15 +326,15 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
 
 // ─── Draw Puck ────────────────────────────────────────────────────────
 
-let drawPuck (g: Graphics) sx sy (ball: Entity) (animFrame: int) =
-    let px = gameX sx ball.X
-    let py = gameY sy ball.Y
+let drawPuck (g: Graphics) sx sy (puck: Entity) (animFrame: int) =
+    let px = gameX sx puck.X
+    let py = gameY sy puck.Y
     let r = 2.5f * sx
 
     g.FillEllipse(solidBrush puckColor, px - r, py - r, r * 2.0f, r * 2.0f)
 
     // Spinning highlight: orbits the puck center once per animation cycle
-    let phase = float32 animFrame / float32 (BallAnimFrames * 2) * (2.0f * float32 System.Math.PI)
+    let phase = float32 animFrame / float32 (PuckAnimFrames * 2) * (2.0f * float32 System.Math.PI)
     let hlBrush = solidBrush puckHighlight
     let hr = r * 0.4f
     let orbit = r * 0.35f
@@ -566,6 +566,7 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
     let whiteBrush = solidBrush Color.White
     let yellowBrush = solidBrush goalFlashColor
     let grayBrush = solidBrush (Color.FromArgb(140, 140, 140))
+    let dimBrush = solidBrush (Color.FromArgb(105, 105, 125))
 
     // Title + subtitle
     drawCentered g bigFont yellowBrush width (height * 0.06f) "THE FS HOCKEY LEAGUE"
@@ -598,7 +599,14 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
 
             let brush = if isSelected then yellowBrush else whiteBrush
             let prefix = if isSelected then "> " else "  "
-            g.DrawString($"{prefix}{teamNames.[i]}", smallFont, brush, colX + 4.0f, ty)
+            let label = $"{prefix}{teamNames.[i]}"
+            g.DrawString(label, smallFont, brush, colX + 4.0f, ty)
+
+            // Team skating speed, dimmed — a hint of how hard a CPU opponent
+            // is, reflecting the current fast-human/hard-mode settings
+            let labelW = g.MeasureString(label, smallFont).Width
+            let spd = displayedTeamSpeed fastHuman hardMode i
+            g.DrawString($"(speed {spd})", smallFont, dimBrush, colX + labelW, ty)
 
     drawColumn col1X "TEAM 1 (LEFT)" team1Color selectedTeam1 (activeColumn = 0)
     drawColumn col2X "TEAM 2 (RIGHT)" team2Color selectedTeam2 (activeColumn = 1)
@@ -677,7 +685,7 @@ let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
     let t2Helmet = if gs.Team2Idx = 0 then helmetGold else helmetBlack
 
     // Puck drawn UNDER players so skaters appear on top of it
-    drawPuck g sx sy gs.Entities.[gs.BallIdx] gs.BallAnimFrame
+    drawPuck g sx sy gs.Entities.[gs.PuckIdx] gs.PuckAnimFrame
 
     // Team 1 players
     for i in 0 .. ppt - 1 do

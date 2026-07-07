@@ -24,7 +24,7 @@ let check (name: string) cond =
 
 let approx (a: float) (b: float) = abs (a - b) < 1e-6
 
-/// Fresh 3v3 game state with player 0 holding the ball, facing (dirX, dirY).
+/// Fresh 3v3 game state with player 0 holding the puck, facing (dirX, dirY).
 let mkHolding dirX dirY (shotPower: float<subpx / tick>) =
     let gs = createGameState ()
     let p = gs.Entities.[0]
@@ -33,36 +33,36 @@ let mkHolding dirX dirY (shotPower: float<subpx / tick>) =
     p.DirX <- dirX
     p.DirY <- dirY
     p.ShotPower <- shotPower
-    gs.BallState <- HeldBy 0
+    gs.PuckState <- HeldBy 0
     gs
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 1: releaseBall — full-power shot right ──"
+printfn "── Test 1: releasePuck — full-power shot right ──"
 
 let t1gs = mkHolding 1.0 0.0 38.0<subpx / tick>
-releaseBall t1gs 0 1.0
-let t1ball = t1gs.Entities.[t1gs.BallIdx]
-check "ball VelX = +38" (approx (float t1ball.VelX) 38.0)
-check "ball VelY = 0" (approx (float t1ball.VelY) 0.0)
+releasePuck t1gs 0 1.0
+let t1puck = t1gs.Entities.[t1gs.PuckIdx]
+check "puck VelX = +38" (approx (float t1puck.VelX) 38.0)
+check "puck VelY = 0" (approx (float t1puck.VelY) 0.0)
 check "kicker VelX = 0" (approx (float t1gs.Entities.[0].VelX) 0.0)
-check "state is Free" (t1gs.BallState = Free)
+check "state is Free" (t1gs.PuckState = Free)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 2: releaseBall — diagonal shot ──"
+printfn "── Test 2: releasePuck — diagonal shot ──"
 
 let t2gs = mkHolding 1.0 -1.0 48.0<subpx / tick>
-releaseBall t2gs 0 1.0
-let t2ball = t2gs.Entities.[t2gs.BallIdx]
-check "ball VelX = +48" (approx (float t2ball.VelX) 48.0)
-check "ball VelY = -48" (approx (float t2ball.VelY) -48.0)
+releasePuck t2gs 0 1.0
+let t2puck = t2gs.Entities.[t2gs.PuckIdx]
+check "puck VelX = +48" (approx (float t2puck.VelX) 48.0)
+check "puck VelY = -48" (approx (float t2puck.VelY) -48.0)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 3: releaseBall — pass fraction is weaker than a shot ──"
+printfn "── Test 3: releasePuck — pass fraction is weaker than a shot ──"
 
 let t3gs = mkHolding 1.0 0.0 38.0<subpx / tick>
-releaseBall t3gs 0 PassPowerFraction
-let t3ball = t3gs.Entities.[t3gs.BallIdx]
-check "pass VelX = 38 * PassPowerFraction" (approx (float t3ball.VelX) (38.0 * PassPowerFraction))
+releasePuck t3gs 0 PassPowerFraction
+let t3puck = t3gs.Entities.[t3gs.PuckIdx]
+check "pass VelX = 38 * PassPowerFraction" (approx (float t3puck.VelX) (38.0 * PassPowerFraction))
 
 // ══════════════════════════════════════════════════════════════════════
 printfn "── Test 4: charge mechanic — full hold shoots at full power ──"
@@ -76,10 +76,10 @@ for _ in 1 .. int ChargeTicksForFull do
 check "held the full charge duration" (t4hold = ChargeTicksForFull)
 // Release (fire key up) fires the shot
 applyHumanInput t4gs 0 false false false false false &t4hold
-let t4ball = t4gs.Entities.[t4gs.BallIdx]
-check "full charge shoots at full power" (approx (float t4ball.VelX) 38.0)
+let t4puck = t4gs.Entities.[t4gs.PuckIdx]
+check "full charge shoots at full power" (approx (float t4puck.VelX) 38.0)
 check "hold counter reset after release" (t4hold = 0<tick>)
-check "ball is Free after shot" (t4gs.BallState = Free)
+check "puck is Free after shot" (t4gs.PuckState = Free)
 
 // ══════════════════════════════════════════════════════════════════════
 printfn "── Test 5: charge mechanic — quick tap is a weak pass ──"
@@ -88,39 +88,39 @@ let t5gs = mkHolding 1.0 0.0 38.0<subpx / tick>
 let mutable t5hold = 0<tick>
 applyHumanInput t5gs 0 false false false false true &t5hold // 1 tick hold
 applyHumanInput t5gs 0 false false false false false &t5hold // release
-let t5ball = t5gs.Entities.[t5gs.BallIdx]
+let t5puck = t5gs.Entities.[t5gs.PuckIdx]
 
 let t5expected =
     38.0
     * (PassPowerFraction + (1.0 - PassPowerFraction) * (1.0 / float (int ChargeTicksForFull)))
 
-check "quick tap = weak shot" (approx (float t5ball.VelX) t5expected)
-check "quick tap weaker than full power" (float t5ball.VelX < 38.0)
+check "quick tap = weak shot" (approx (float t5puck.VelX) t5expected)
+check "quick tap weaker than full power" (float t5puck.VelX < 38.0)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 6: fire while a teammate holds the ball does nothing ──"
+printfn "── Test 6: fire while a teammate holds the puck does nothing ──"
 
 let t6gs = createGameState ()
-t6gs.BallState <- HeldBy 1
+t6gs.PuckState <- HeldBy 1
 let mutable t6hold = 0<tick>
 applyHumanInput t6gs 0 false false false false true &t6hold
-check "ball still HeldBy 1" (t6gs.BallState = HeldBy 1)
+check "puck still HeldBy 1" (t6gs.PuckState = HeldBy 1)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 7: checkBallPickup — free ball within CollisionDist ──"
+printfn "── Test 7: checkPuckPickup — free puck within CollisionDist ──"
 
 let t7gs = createGameState ()
 t7gs.Entities.[0].X <- 100.0<px>
 t7gs.Entities.[0].Y <- 80.0<px>
-let t7ball = t7gs.Entities.[t7gs.BallIdx]
-t7ball.X <- 105.0<px> // dx = 5 < 8
-t7ball.Y <- 82.0<px> // dy = 2 < 8
-t7gs.BallState <- Free
-checkBallPickup t7gs
-check "ball picked up by player 0" (t7gs.BallState = HeldBy 0)
+let t7puck = t7gs.Entities.[t7gs.PuckIdx]
+t7puck.X <- 105.0<px> // dx = 5 < 8
+t7puck.Y <- 82.0<px> // dy = 2 < 8
+t7gs.PuckState <- Free
+checkPuckPickup t7gs
+check "puck picked up by player 0" (t7gs.PuckState = HeldBy 0)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 8: checkBallPickup — just out of reach stays free ──"
+printfn "── Test 8: checkPuckPickup — just out of reach stays free ──"
 
 let t8gs = createGameState ()
 
@@ -130,28 +130,28 @@ for i in 0 .. t8gs.NumPlayers - 1 do
 
 t8gs.Entities.[0].X <- 100.0<px>
 t8gs.Entities.[0].Y <- 80.0<px>
-let t8ball = t8gs.Entities.[t8gs.BallIdx]
-t8ball.X <- 110.0<px> // dx = 10, not < 8
-t8ball.Y <- 80.0<px>
-t8gs.BallState <- Free
-checkBallPickup t8gs
-check "no pickup just out of reach" (t8gs.BallState = Free)
+let t8puck = t8gs.Entities.[t8gs.PuckIdx]
+t8puck.X <- 110.0<px> // dx = 10, not < 8
+t8puck.Y <- 80.0<px>
+t8gs.PuckState <- Free
+checkPuckPickup t8gs
+check "no pickup just out of reach" (t8gs.PuckState = Free)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 9: checkBallPickup — held ball cannot be stolen ──"
+printfn "── Test 9: checkPuckPickup — held puck cannot be stolen ──"
 
 let t9gs = createGameState ()
 t9gs.Entities.[1].X <- 100.0<px>
 t9gs.Entities.[1].Y <- 80.0<px>
-let t9ball = t9gs.Entities.[t9gs.BallIdx]
-t9ball.X <- 100.0<px>
-t9ball.Y <- 80.0<px>
-t9gs.BallState <- HeldBy 0
-checkBallPickup t9gs
-check "still HeldBy 0 (no steal)" (t9gs.BallState = HeldBy 0)
+let t9puck = t9gs.Entities.[t9gs.PuckIdx]
+t9puck.X <- 100.0<px>
+t9puck.Y <- 80.0<px>
+t9gs.PuckState <- HeldBy 0
+checkPuckPickup t9gs
+check "still HeldBy 0 (no steal)" (t9gs.PuckState = HeldBy 0)
 
 // ══════════════════════════════════════════════════════════════════════
-printfn "── Test 10: findNearestToBall picks the closest skater ──"
+printfn "── Test 10: findNearestToPuck picks the closest skater ──"
 
 let t10gs = createGameState ()
 
@@ -159,11 +159,11 @@ for i in 0 .. t10gs.NumPlayers - 1 do
     t10gs.Entities.[i].X <- float (200 + i) * 1.0<px>
     t10gs.Entities.[i].Y <- 80.0<px>
 
-t10gs.Entities.[2].X <- 100.0<px> // closest to centred ball
-let t10ball = t10gs.Entities.[t10gs.BallIdx]
-t10ball.X <- 100.0<px>
-t10ball.Y <- 80.0<px>
-check "nearest team-1 player is index 2" (findNearestToBall t10gs 0 (t10gs.PlayersPerTeam - 1) = 2)
+t10gs.Entities.[2].X <- 100.0<px> // closest to centred puck
+let t10puck = t10gs.Entities.[t10gs.PuckIdx]
+t10puck.X <- 100.0<px>
+t10puck.Y <- 80.0<px>
+check "nearest team-1 player is index 2" (findNearestToPuck t10gs 0 (t10gs.PlayersPerTeam - 1) = 2)
 
 // ══════════════════════════════════════════════════════════════════════
 printfn "── Test 11: generateSchedule produces a valid round-robin ──"
