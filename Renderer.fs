@@ -315,15 +315,15 @@ let drawRetroPlayer (ctx: obj) sx sy (ent: Entity) (jerseyColor: Color) (helmetC
 
 // ─── Draw Puck ────────────────────────────────────────────────────────
 
-let drawPuck (ctx: obj) sx sy (ball: Entity) (animFrame: int) =
-    let px = gameX sx ball.X
-    let py = gameY sy ball.Y
+let drawPuck (ctx: obj) sx sy (puck: Entity) (animFrame: int) =
+    let px = gameX sx puck.X
+    let py = gameY sy puck.Y
     let r = 2.5 * sx
 
     fillEllipse ctx px py r r puckColor
 
     // Spinning highlight: orbits the puck center once per animation cycle
-    let phase = float animFrame / float (BallAnimFrames * 2) * (2.0 * System.Math.PI)
+    let phase = float animFrame / float (PuckAnimFrames * 2) * (2.0 * System.Math.PI)
     let hr = r * 0.4
     let orbit = r * 0.35
     let hx = px + cos phase * orbit
@@ -555,7 +555,14 @@ let drawMenu (ctx: obj) width height selectedTeam1 selectedTeam2 activeColumn fa
 
             let color = if isSelected then goalFlashColor else Color.White
             let prefix = if isSelected then "> " else "  "
-            drawText ctx smallSize $"{prefix}{teamNames.[i]}" (colX + 4.0) ty color
+            let label = $"{prefix}{teamNames.[i]}"
+            drawText ctx smallSize label (colX + 4.0) ty color
+
+            // Team skating speed, dimmed — a hint of how hard a CPU opponent
+            // is, reflecting the current fast-human/hard-mode settings
+            let labelW = measureWidth ctx smallSize label
+            let spd = displayedTeamSpeed fastHuman hardMode i
+            drawText ctx smallSize $" (speed {spd})" (colX + 4.0 + labelW) ty (Color(105, 105, 125))
 
     drawColumn col1X "TEAM 1 (LEFT)" team1Color selectedTeam1 (activeColumn = 0)
     drawColumn col2X "TEAM 2 (RIGHT)" team2Color selectedTeam2 (activeColumn = 1)
@@ -631,7 +638,7 @@ let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) league
     let t2Helmet = if gs.Team2Idx = 0 then helmetGold else helmetBlack
 
     // Puck drawn UNDER players so skaters appear on top of it
-    drawPuck ctx sx sy gs.Entities.[gs.BallIdx] gs.BallAnimFrame
+    drawPuck ctx sx sy gs.Entities.[gs.PuckIdx] gs.PuckAnimFrame
 
     // Team 1 players
     for i in 0 .. ppt - 1 do

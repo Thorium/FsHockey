@@ -302,7 +302,7 @@ let private update () =
         for _ in 1..PhysicsTicksPerFrame do
             gameTick gs
 
-        gs.BallAnimFrame <- (gs.BallAnimFrame + 1) % (BallAnimFrames * 2)
+        gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
 
         if pressed "Escape" then app.Mode <- Menu
 
@@ -324,7 +324,7 @@ let private update () =
         for _ in 1..PhysicsTicksPerFrame do
             gameTick gs
 
-        gs.BallAnimFrame <- (gs.BallAnimFrame + 1) % (BallAnimFrames * 2)
+        gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
 
         if pressed "Space" && matchOver gs then
             match app.League with
