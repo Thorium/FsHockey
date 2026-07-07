@@ -35,7 +35,7 @@ let puckHighlight = Color.FromArgb(60, 60, 60)
 let hudBg = Color.FromArgb(20, 20, 40)
 let hudText = Color.FromArgb(220, 220, 220)
 let goalFlashColor = Color.FromArgb(255, 255, 80)
-let activeMarker = Color.White
+let activeMarker = Color.FromArgb(90, 255, 120)   // green caret over the controlled player
 let stickBrown = Color.FromArgb(139, 90, 43)
 let stickTape = Color.FromArgb(240, 240, 240)
 let helmetBlack = Color.FromArgb(30, 30, 30)
@@ -372,15 +372,42 @@ let drawHud (g: Graphics) (gs: GameState) sx sy rinkBottom width =
     let s2Size = g.MeasureString(s2Str, font)
     g.DrawString(s2Str, font, t2Brush, width - s2Size.Width - 10.0f * sx, hudY + 4.0f + fontSize * 1.1f)
 
-    // Clock (center)
-    let secs = int gs.ClockSeconds
+    // Clock (center) — counts DOWN to the period end
+    let secs = max 0 (int gs.PeriodLength - int gs.ClockSeconds)
     let clockStr = $"{secs / 60}:{secs % 60:D2}"
     drawCentered g font textBrush width (hudY + 4.0f) clockStr
 
-    // Period info
-    if gs.NumPeriods > 1 then
-        let periodStr = $"PERIOD {gs.CurrentPeriod + 1} of {gs.NumPeriods}"
+    // Period info ("FINAL RESULT" once the match is over)
+    let periodStr =
+        if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then "FINAL RESULT"
+        elif gs.NumPeriods > 1 then $"PERIOD {gs.CurrentPeriod + 1} of {gs.NumPeriods}"
+        else ""
+
+    if periodStr <> "" then
         drawCentered g smallFont textBrush width (hudY + 4.0f + fontSize * 1.1f) periodStr
+
+// ─── Pause Overlay ────────────────────────────────────────────────────
+
+let drawPauseOverlay (g: Graphics) (width: float32) (height: float32) =
+    g.FillRectangle(solidBrush (Color.FromArgb(140, Color.Black)), 0.0f, 0.0f, width, height)
+    let scale = min (width / OrigW) (height / OrigH)
+    let font = fontFor (max 10.0f (14.0f * scale)) FontStyle.Bold
+    let small = fontFor (max 7.0f (6.0f * scale)) FontStyle.Regular
+    drawCentered g font (solidBrush goalFlashColor) width (height * 0.42f) "PAUSED"
+    drawCentered g small (solidBrush (Color.FromArgb(160, 160, 160))) width (height * 0.42f + 40.0f * scale) "Press P to continue"
+
+// ─── Period Start Banner ──────────────────────────────────────────────
+
+let drawPeriodFlash (g: Graphics) (gs: GameState) (width: float32) (height: float32) =
+    if gs.PeriodFlashTimer > 0<tick> && gs.GoalFlashTimer <= 0<tick> then
+        let scale = min (width / OrigW) (height / OrigH)
+        let font = fontFor (max 8.0f (10.0f * scale)) FontStyle.Bold
+        let banner = $"PERIOD {gs.CurrentPeriod + 1}"
+        let strSize = g.MeasureString(banner, font)
+        let tx = (width - strSize.Width) / 2.0f
+        let ty = (height - strSize.Height) / 2.0f - 20.0f
+        g.DrawString(banner, font, solidBrush (Color.FromArgb(180, Color.Black)), tx + 2.0f, ty + 2.0f)
+        g.DrawString(banner, font, solidBrush goalFlashColor, tx, ty)
 
 // ─── Goal Flash Overlay ───────────────────────────────────────────────
 
@@ -619,7 +646,7 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
 
     let instrLines =
         [| "UP/DOWN = Select Team  |  TAB = Switch Column"
-           "ENTER = Start Game  |  L = Play League  |  ESC = Quit"
+           "ENTER = Start Game  |  L = Play League  |  P = Pause  |  ESC = Quit"
            $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
            $"G = Gamepad [{padStr}]"
            "Hold shoot key longer for harder shot, quick tap for a pass"
@@ -729,6 +756,7 @@ let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
 
     // Overlays
     drawGoalFlash g gs w h
+    drawPeriodFlash g gs w h
 
     if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then
         drawGameOver g gs w h leagueMode

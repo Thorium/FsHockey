@@ -32,6 +32,7 @@ type AppState =
       mutable HardMode: bool
       mutable FivePlayerMode: bool
       mutable GamepadEnabled: bool
+      mutable Paused: bool
       mutable League: LeagueState option }
 
 let createAppState () =
@@ -44,6 +45,7 @@ let createAppState () =
       HardMode = false
       FivePlayerMode = false
       GamepadEnabled = true
+      Paused = false
       League = None }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -109,6 +111,7 @@ let startLeagueMatch (app: AppState) =
         setPlayerMode gs app.FivePlayerMode
         setTeamSpeeds app
         initMatch gs
+        app.Paused <- false
         app.Mode <- LeaguePlaying
 
 /// Start an exhibition match
@@ -122,6 +125,7 @@ let startExhibitionMatch (app: AppState) =
     setPlayerMode gs app.FivePlayerMode
     setTeamSpeeds app
     initMatch gs
+    app.Paused <- false
     app.Mode <- Playing
 
 /// Is the match over? (not playing, clock expired)
@@ -279,7 +283,7 @@ type HockeyForm() as this =
     member _.OnTick() =
         match app.Mode with
         | Playing
-        | LeaguePlaying ->
+        | LeaguePlaying when not app.Paused ->
             gs.Input1 <- kbInput1
             gs.Input2 <- kbInput2
 
@@ -325,7 +329,11 @@ type HockeyForm() as this =
                     app.FivePlayerMode
                     app.GamepadEnabled
 
-            | Playing -> renderFrame g gs w h false
+            | Playing ->
+                renderFrame g gs w h false
+
+                if app.Paused then
+                    drawPauseOverlay g fw fh
 
             | LeagueMatchup ->
                 match app.League with
@@ -342,7 +350,11 @@ type HockeyForm() as this =
                         teamNames.[t2]
                 | None -> ()
 
-            | LeaguePlaying -> renderFrame g gs w h true
+            | LeaguePlaying ->
+                renderFrame g gs w h true
+
+                if app.Paused then
+                    drawPauseOverlay g fw fh
 
             | LeagueStandings ->
                 app.League
@@ -409,7 +421,10 @@ type HockeyForm() as this =
 
         if down then
             match key with
-            | Keys.Escape -> app.Mode <- Menu
+            | Keys.P -> app.Paused <- not app.Paused
+            | Keys.Escape ->
+                app.Paused <- false
+                app.Mode <- Menu
             | Keys.Space when matchOver gs -> app.Mode <- Menu
             | _ -> ()
 
@@ -430,6 +445,7 @@ type HockeyForm() as this =
 
         if down then
             match key with
+            | Keys.P -> app.Paused <- not app.Paused
             | Keys.Space when matchOver gs ->
                 match app.League with
                 | Some league ->
@@ -439,6 +455,7 @@ type HockeyForm() as this =
                     app.Mode <- if finished then LeagueFinalStandings else LeagueStandings
                 | None -> app.Mode <- Menu
             | Keys.Escape ->
+                app.Paused <- false
                 app.League <- None
                 app.Mode <- Menu
             | _ -> ()
