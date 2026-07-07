@@ -94,6 +94,8 @@ type GameState =
       mutable GameTick: int<tick>
       mutable Playing: bool
       mutable GoalFlashTimer: int<tick>
+      // "PERIOD X" banner countdown; play holds while it shows
+      mutable PeriodFlashTimer: int<tick>
       mutable GoalScoredBy: GoalScoredBy
       mutable Team1Idx: int
       mutable Team2Idx: int
@@ -210,6 +212,7 @@ let createGameState () : GameState =
       GameTick = 0<tick>
       Playing = false
       GoalFlashTimer = 0<tick>
+      PeriodFlashTimer = 0<tick>
       GoalScoredBy = NoGoal
       Team1Idx = 0
       Team2Idx = 1
@@ -296,6 +299,7 @@ let initMatch (gs: GameState) =
     gs.ClockTick <- 0<tick>
     gs.GameTick <- 0<tick>
     gs.GoalFlashTimer <- 0<tick>
+    gs.PeriodFlashTimer <- PeriodFlashTicks
     gs.CurrentPeriod <- 0
     gs.Playing <- true
     gs.Input1 <- Input.none
@@ -471,7 +475,9 @@ let applyHumanInput (gs: GameState) idx (input: Input) (fireHoldTicks: int<tick>
 
 // ─── AI: Move toward target ────────────────────────────────────────────
 
-let aiMoveToward (ent: Entity) (targetX: float<px>) (targetY: float<px>) =
+/// Move toward a target with top speed capped to `speedFrac` of MaxSpeed
+/// (1.0 = full speed; lower for unhurried repositioning)
+let aiMoveTowardCapped (ent: Entity) (targetX: float<px>) (targetY: float<px>) (speedFrac: float) =
     if ent.X > targetX then
         ent.VelX <- ent.VelX - ent.Accel
     elif ent.X < targetX then
@@ -482,13 +488,18 @@ let aiMoveToward (ent: Entity) (targetX: float<px>) (targetY: float<px>) =
     elif ent.Y < targetY then
         ent.VelY <- ent.VelY + ent.Accel
 
-    clampVel ent
+    let cap = ent.MaxSpeed * speedFrac
+    ent.VelX <- clamp -cap cap ent.VelX
+    ent.VelY <- clamp -cap cap ent.VelY
     let dx = float (targetX - ent.X)
     let dy = float (targetY - ent.Y)
 
     if abs dx > 2.0 || abs dy > 2.0 then
         ent.DirX <- float (sign dx)
         ent.DirY <- float (sign dy)
+
+let aiMoveToward (ent: Entity) (targetX: float<px>) (targetY: float<px>) =
+    aiMoveTowardCapped ent targetX targetY 1.0
 
 // ─── AI: Active Player Logic ───────────────────────────────────────────
 
@@ -595,7 +606,18 @@ let aiActivePlayer (gs: GameState) idx isTeam1 =
         // rushes toward the opponent goal instead of passing or backing off
         let rushing = gs.PossessionTimer > PossessionTimer - AiInitialRushTicks
 
-        if inShootZone && alignedWithGoal && not blocked then
+        // The defending goalie (5-player mode): don't shoot straight into
+        // its pads — skate around it instead
+        let goalieBlocking, goalieY =
+            if gs.FivePlayerMode then
+                let g = gs.Entities.[if isTeam1 then gs.Team2Start else 0]
+                let linedUp = abs (float (g.Y - ent.Y)) < float AiGoalieAvoidY
+                let goalSideOfCarrier = float (g.X - ent.X) * goalDir > 0.0
+                linedUp && goalSideOfCarrier, g.Y
+            else
+                false, 0.0<px>
+
+        if inShootZone && alignedWithGoal && not blocked && not goalieBlocking then
             // Clear look at the goal: shoot — but not with perfect aim; a
             // fair share of shots go off diagonally and miss from range
             ent.DirX <- goalDir
@@ -607,6 +629,18 @@ let aiActivePlayer (gs: GameState) idx isTeam1 =
                 else 0.0
 
             releasePuck gs idx 1.0
+        elif inShootZone && goalieBlocking then
+            // Deke: cut sideways around the goalie to open a shooting angle
+            // (fast skaters naturally pull this off better)
+            let side = if ent.Y >= goalieY then 1.0 else -1.0
+            let targetY =
+                clamp (GoalTop + 4.0<px>) (GoalBottom - 4.0<px>)
+                    (goalieY + side * AiGoalieDekeOffset)
+
+            aiMoveToward
+                ent
+                (clamp FieldLeft FieldRight (ent.X + goalDir * 10.0<px>))
+                targetY
         elif rushing then
             let targetX =
                 if isTeam1 then FieldRight - AiCarryTargetMargin
@@ -746,7 +780,12 @@ let aiDefender (gs: GameState) idx isTeam1 =
     // Wander offset so players don't park on exactly the same spot every time
     let targetX = clamp FieldLeft FieldRight (homeX + gs.WanderX.[idx])
     let targetY = clamp FieldTop FieldBottom (homeY + gs.WanderY.[idx])
-    aiMoveToward ent targetX targetY
+
+    // While the puck is loose nobody needs to sprint back to position —
+    // drift home at reduced speed so the play doesn't reset so abruptly
+    match gs.PuckState with
+    | Free -> aiMoveTowardCapped ent targetX targetY AiReturnSpeedFrac
+    | HeldBy _ -> aiMoveToward ent targetX targetY
 
 // ─── AI: Goalie Logic (5-player mode, index 0 per team) ──────────────
 // Goalie patrols a square zone in front of the goal (not just a line).
@@ -842,11 +881,12 @@ let aiWing (gs: GameState) idx isTeam1 =
         let targetY = clamp (GoalTop - 10.0<px>) (GoalBottom + 10.0<px>) (puck.Y + wy)
         aiMoveToward ent retreatX targetY
     else
+        // puck is loose: drift toward position at reduced speed
         let homeX = (if isTeam1 then team1HomeX5 else team2HomeX5).[localIdx]
         let homeY = (if isTeam1 then team1HomeY5 else team2HomeY5).[localIdx]
         let targetX = clamp FieldLeft FieldRight ((homeX + puck.X) / 2.0 + wx)
         let targetY = clamp FieldTop FieldBottom ((homeY + puck.Y) / 2.0 + wy)
-        aiMoveToward ent targetX targetY
+        aiMoveTowardCapped ent targetX targetY AiReturnSpeedFrac
 
 // ─── Move Puck When Possessed ──────────────────────────────────────────
 
@@ -964,6 +1004,9 @@ let gameTick (gs: GameState) =
 
             if gs.GoalFlashTimer = 0<tick> then
                 resetPositions gs
+        // "PERIOD X" banner: hold play while it shows
+        elif gs.PeriodFlashTimer > 0<tick> then
+            gs.PeriodFlashTimer <- gs.PeriodFlashTimer - 1<tick>
         else
 
             let ppt = gs.PlayersPerTeam
@@ -1149,6 +1192,33 @@ let gameTick (gs: GameState) =
                 if checkWallsAndGoals gs i then
                     goalScored <- true
 
+            // Skaters bounce off a goalie's body instead of skating through
+            // it: push out along the contact normal and reflect the inbound
+            // velocity component (dampened). The goalie holds its ground.
+            if gs.FivePlayerMode then
+                for gIdx in [| 0; t2s |] do
+                    let goalie = gs.Entities.[gIdx]
+
+                    for i in 0 .. gs.NumPlayers - 1 do
+                        if i <> gIdx then
+                            let e = gs.Entities.[i]
+                            let dx = float (e.X - goalie.X)
+                            let dy = float (e.Y - goalie.Y)
+                            let distSq = dx * dx + dy * dy
+                            let minD = float GoalieBodyRadius
+
+                            if distSq < minD * minD && distSq > 0.01 then
+                                let dist = sqrt distSq
+                                let nx = dx / dist
+                                let ny = dy / dist
+                                e.X <- clamp FieldLeft FieldRight (goalie.X + nx * GoalieBodyRadius)
+                                e.Y <- clamp FieldTop FieldBottom (goalie.Y + ny * GoalieBodyRadius)
+                                let vDotN = float e.VelX * nx + float e.VelY * ny
+
+                                if vDotN < 0.0 then
+                                    e.VelX <- e.VelX - 1.5 * vDotN * nx * 1.0<subpx / tick>
+                                    e.VelY <- e.VelY - 1.5 * vDotN * ny * 1.0<subpx / tick>
+
             if not goalScored then
                 checkPuckPickup gs
 
@@ -1167,6 +1237,7 @@ let gameTick (gs: GameState) =
                 else
                     gs.ClockSeconds <- 0<sec>
                     gs.ClockTick <- 0<tick>
+                    gs.PeriodFlashTimer <- PeriodFlashTicks
                     resetPositions gs
 
 // ─── League Mode ───────────────────────────────────────────────────────
@@ -1249,7 +1320,7 @@ let recordMatchResult (league: LeagueState) team1Idx team2Idx team1Goals team2Go
 /// Scores clamped to 0..10.
 let simulateCpuGoals (rng: Random) (strength: float) =
     // Expected goals: ranges from ~1.5 (weakest) to ~5.0 (strongest)
-    let lambda = 1.5 + strength * 3.5
+    let lambda = 2.2 + strength * 4.0
     // Poisson sampling via Knuth's method
     let mutable k = 0
     let mutable p = 1.0

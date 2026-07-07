@@ -56,7 +56,7 @@ let puckHighlight = Color(60, 60, 60)
 let hudBg = Color(20, 20, 40)
 let hudText = Color(220, 220, 220)
 let goalFlashColor = Color(255, 255, 80)
-let activeMarkerColor = Color.White
+let activeMarkerColor = Color(90, 255, 120)   // green caret over the controlled player
 let stickBrown = Color(139, 90, 43)
 let stickTape = Color(240, 240, 240)
 let helmetBlack = Color(30, 30, 30)
@@ -354,18 +354,43 @@ let drawHud (ctx: obj) (gs: GameState) sx sy rinkBottom width =
     let s2W = measureWidth ctx fontSize s2Str
     drawText ctx fontSize s2Str (width - s2W - 10.0 * sx) (hudY + 4.0 + fontSize * 1.1) team2Color
 
-    // Clock (center). Pad the seconds manually — Fable does not support the
-    // .NET ":D2" format specifier inside interpolated strings.
-    let secs = int gs.ClockSeconds
+    // Clock (center) — counts DOWN to the period end. Pad the seconds
+    // manually — Fable does not support ":D2" in interpolated strings.
+    let secs = max 0 (int gs.PeriodLength - int gs.ClockSeconds)
     let secPart = secs % 60
     let secStr = if secPart < 10 then $"0{secPart}" else $"{secPart}"
     let clockStr = $"{secs / 60}:{secStr}"
     drawCentered ctx fontSize width (hudY + 4.0) clockStr hudText
 
-    // Period info
-    if gs.NumPeriods > 1 then
-        let periodStr = $"PERIOD {gs.CurrentPeriod + 1} of {gs.NumPeriods}"
+    // Period info ("FINAL RESULT" once the match is over)
+    let periodStr =
+        if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then "FINAL RESULT"
+        elif gs.NumPeriods > 1 then $"PERIOD {gs.CurrentPeriod + 1} of {gs.NumPeriods}"
+        else ""
+
+    if periodStr <> "" then
         drawCentered ctx smallSize width (hudY + 4.0 + fontSize * 1.1) periodStr hudText
+
+// ─── Pause Overlay ────────────────────────────────────────────────────
+
+let drawPauseOverlay (ctx: obj) (width: float) (height: float) =
+    fillRect ctx 0.0 0.0 width height (Color(0, 0, 0, 140))
+    let scale = min (width / OrigW) (height / OrigH)
+    drawCentered ctx (max 10.0 (14.0 * scale)) width (height * 0.42) "PAUSED" goalFlashColor
+    drawCentered ctx (max 7.0 (6.0 * scale)) width (height * 0.42 + 40.0 * scale) "Press P to continue" grayColor
+
+// ─── Period Start Banner ──────────────────────────────────────────────
+
+let drawPeriodFlash (ctx: obj) (gs: GameState) (width: float) (height: float) =
+    if gs.PeriodFlashTimer > 0<tick> && gs.GoalFlashTimer <= 0<tick> then
+        let scale = min (width / OrigW) (height / OrigH)
+        let fontSize = max 16.0 (20.0 * scale)
+        let banner = $"PERIOD {gs.CurrentPeriod + 1}"
+        let w = measureWidth ctx fontSize banner
+        let tx = (width - w) / 2.0
+        let ty = height / 2.0 - 20.0
+        drawText ctx fontSize banner (tx + 2.0) (ty + 2.0) (Color(0, 0, 0, 180))
+        drawText ctx fontSize banner tx ty goalFlashColor
 
 // ─── Goal Flash Overlay ───────────────────────────────────────────────
 
@@ -575,7 +600,7 @@ let drawMenu (ctx: obj) width height selectedTeam1 selectedTeam2 activeColumn fa
 
     let instrLines =
         [| "UP/DOWN = Select Team  |  TAB = Switch Column"
-           "ENTER = Start Game  |  L = Play League"
+           "ENTER = Start Game  |  L = Play League  |  P = Pause"
            $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
            $"G = Gamepad [{padStr}]  |  F11 = Toggle Fullscreen"
            "Hold shoot key longer for harder shot, quick tap for a pass"
@@ -681,6 +706,7 @@ let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) league
 
     // Overlays
     drawGoalFlash ctx gs w h
+    drawPeriodFlash ctx gs w h
 
     if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then
         drawGameOver ctx gs w h leagueMode

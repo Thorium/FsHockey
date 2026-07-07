@@ -82,6 +82,7 @@ type AppState =
       mutable HardMode: bool
       mutable FivePlayerMode: bool
       mutable GamepadEnabled: bool
+      mutable Paused: bool
       mutable League: LeagueState option }
 
 let createAppState () =
@@ -94,6 +95,7 @@ let createAppState () =
       HardMode = false
       FivePlayerMode = false
       GamepadEnabled = true
+      Paused = false
       League = None }
 
 // ─── Helpers (ported from the MonoGame Program) ────────────────────────
@@ -157,6 +159,7 @@ let startLeagueMatch (app: AppState) =
         setPlayerMode gs app.FivePlayerMode
         setTeamSpeeds app
         initMatch gs
+        app.Paused <- false
         app.Mode <- LeaguePlaying
 
 /// Start an exhibition match
@@ -170,6 +173,7 @@ let startExhibitionMatch (app: AppState) =
     setPlayerMode gs app.FivePlayerMode
     setTeamSpeeds app
     initMatch gs
+    app.Paused <- false
     app.Mode <- Playing
 
 /// Is the match over?
@@ -292,19 +296,24 @@ let private update () =
         if pressed "KeyG" then app.GamepadEnabled <- not app.GamepadEnabled
 
     | Playing ->
-        mapPlayer1Keys gs
-        mapPlayer2Keys gs
+        if pressed "KeyP" then app.Paused <- not app.Paused
 
-        if app.GamepadEnabled then
-            gs.Input1 <- mergeInput gs.Input1 (gamepadInput 0)
-            gs.Input2 <- mergeInput gs.Input2 (gamepadInput 1)
+        if not app.Paused then
+            mapPlayer1Keys gs
+            mapPlayer2Keys gs
 
-        for _ in 1..PhysicsTicksPerFrame do
-            gameTick gs
+            if app.GamepadEnabled then
+                gs.Input1 <- mergeInput gs.Input1 (gamepadInput 0)
+                gs.Input2 <- mergeInput gs.Input2 (gamepadInput 1)
 
-        gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
+            for _ in 1..PhysicsTicksPerFrame do
+                gameTick gs
 
-        if pressed "Escape" then app.Mode <- Menu
+            gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
+
+        if pressed "Escape" then
+            app.Paused <- false
+            app.Mode <- Menu
 
         if pressed "Space" && matchOver gs then app.Mode <- Menu
 
@@ -316,15 +325,18 @@ let private update () =
             app.Mode <- Menu
 
     | LeaguePlaying ->
-        mapPlayer1Keys gs
+        if pressed "KeyP" then app.Paused <- not app.Paused
 
-        if app.GamepadEnabled then
-            gs.Input1 <- mergeInput gs.Input1 (gamepadInput 0)
+        if not app.Paused then
+            mapPlayer1Keys gs
 
-        for _ in 1..PhysicsTicksPerFrame do
-            gameTick gs
+            if app.GamepadEnabled then
+                gs.Input1 <- mergeInput gs.Input1 (gamepadInput 0)
 
-        gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
+            for _ in 1..PhysicsTicksPerFrame do
+                gameTick gs
+
+            gs.PuckAnimFrame <- (gs.PuckAnimFrame + 1) % (PuckAnimFrames * 2)
 
         if pressed "Space" && matchOver gs then
             match app.League with
@@ -336,6 +348,7 @@ let private update () =
             | None -> app.Mode <- Menu
 
         if pressed "Escape" then
+            app.Paused <- false
             app.League <- None
             app.Mode <- Menu
 
@@ -366,7 +379,9 @@ let private render () =
     | Menu ->
         drawMenu ctx fw fh app.SelectedTeam1 app.SelectedTeam2 app.ActiveColumn app.FastHuman app.HardMode app.FivePlayerMode app.GamepadEnabled
 
-    | Playing -> renderFrame ctx gs viewW viewH false
+    | Playing ->
+        renderFrame ctx gs viewW viewH false
+        if app.Paused then drawPauseOverlay ctx viewW viewH
 
     | LeagueMatchup ->
         match app.League with
@@ -383,7 +398,9 @@ let private render () =
                 teamNames.[t2]
         | None -> ()
 
-    | LeaguePlaying -> renderFrame ctx gs viewW viewH true
+    | LeaguePlaying ->
+        renderFrame ctx gs viewW viewH true
+        if app.Paused then drawPauseOverlay ctx viewW viewH
 
     | LeagueStandings ->
         app.League
