@@ -443,13 +443,9 @@ let drawGoalFlash (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width:
         let scale = min (width / OrigW) (height / OrigH)
         let fontSize = max 16.0f (20.0f * scale)
 
-        let scorerName =
-            match gs.GoalScoredBy with
-            | Team1Scored -> teamNames.[gs.Team1Idx]
-            | Team2Scored -> teamNames.[gs.Team2Idx]
-            | NoGoal -> ""
-
-        let goalStr = $"GOAL! {scorerName}"
+        // Just "GOAL!" — the score line below says who scored, and a team
+        // name makes the banner overflow the screen at small sizes.
+        let goalStr = "GOAL!"
         let struct (tw, th) = measureText font fontSize goalStr
         let tx = (width - tw) / 2.0f
         let ty = (height - th) / 2.0f - 20.0f
