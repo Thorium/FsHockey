@@ -89,11 +89,98 @@ let private subscriptions (ctx: GameContext) (m: Model) : Sub<Msg> =
           if m.GamepadEnabled then
               Gamepad.listen PadChanged ctx ]
 
+// ─── Graphics Smoke Test (`--graphics-test <outDir>`) ─────────────────
+// Self-driving capture mode for visual regression checks: an autopilot
+// subscription feeds the same InputChanged messages a player's keys would
+// produce, and a trailing renderer saves backbuffer PNGs at fixed frames.
+// No OS-level input injection — the window drives itself and exits.
+
+/// (frame number, screenshot name) — the trailing renderer runs after the
+/// main view has drawn the frame into the backbuffer.
+let private screenshotPlan =
+    [ 60, "menu"
+      115, "period-banner"
+      200, "gameplay"
+      250, "paused" ]
+
+/// (delay ms before the press, action) — pressed and released like a key.
+let private autopilotScript =
+    [ 1500, Select //       menu -> exhibition match (PERIOD 1 banner shows)
+      1800, TogglePause //  freeze play for a stable overlay shot
+      1300, TogglePause
+      200, Back //          match -> menu
+      500, Back ] //        menu -> quit
+
+let private autopilotSub (ctx: GameContext) : Sub<Msg> =
+    let subId = SubId.ofString "HockeyDemo/graphics-test/autopilot"
+
+    let start (dispatch: Dispatch<Msg>) =
+        let cts = new System.Threading.CancellationTokenSource()
+
+        Async.Start(
+            async {
+                for delayMs, action in autopilotScript do
+                    do! Async.Sleep delayMs
+
+                    dispatch (
+                        InputChanged
+                            { ActionState.empty with
+                                Started = Set.singleton action
+                                Held = Set.singleton action }
+                    )
+
+                    do! Async.Sleep 60
+                    dispatch (InputChanged { ActionState.empty with Released = Set.singleton action })
+            },
+            cts.Token
+        )
+
+        { new System.IDisposable with
+            member _.Dispose() = cts.Cancel() }
+
+    Sub.Active(subId, start)
+
+let private screenshotRenderer (outDir: string) : IRenderer<Model> =
+    let mutable frame = 0
+
+    { new IRenderer<Model> with
+        member _.Draw(ctx, _model, _gameTime) =
+            frame <- frame + 1
+
+            match screenshotPlan |> List.tryFind (fun (f, _) -> f = frame) with
+            | Some(_, name) ->
+                let gd = MonoGameGameContext.getGraphicsDevice ctx
+                let w = gd.PresentationParameters.BackBufferWidth
+                let h = gd.PresentationParameters.BackBufferHeight
+                let data: Color[] = Array.zeroCreate (w * h)
+                gd.GetBackBufferData(data)
+                use tex = new Texture2D(gd, w, h)
+                tex.SetData(data)
+                use fs = System.IO.File.Create(System.IO.Path.Combine(outDir, name + ".png"))
+                tex.SaveAsPng(fs, w, h)
+            | None -> () }
+
 // ─── Entry Point ──────────────────────────────────────────────────────
 
 [<EntryPoint>]
-let main _ =
+let main argv =
     toggleFullscreenHook <- toggleFullscreen
+
+    let graphicsTestDir =
+        match argv with
+        | [| "--graphics-test"; dir |] ->
+            System.IO.Directory.CreateDirectory(dir) |> ignore
+            Some dir
+        | _ -> None
+
+    let withTestHarness program =
+        match graphicsTestDir with
+        | None -> program
+        | Some dir ->
+            program
+            |> Program.withSubscription (fun ctx m ->
+                Sub.batch [ subscriptions ctx m; autopilotSub ctx ])
+            |> Program.withRenderer (fun () -> screenshotRenderer dir)
 
     let program =
         Program.mkProgram init update
@@ -107,6 +194,7 @@ let main _ =
         |> Program.withSubscription subscriptions
         |> Program.withFixedStep fixedStepConfig
         |> Program.withRenderer (fun () -> Renderer2D.create view)
+        |> withTestHarness
         |> MonoGameProgram.ofProgram
         |> MonoGameProgram.withConfig (fun (game, gdm) ->
             game.Content.RootDirectory <- "Content"

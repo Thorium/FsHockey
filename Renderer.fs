@@ -3,8 +3,10 @@
 /// ice rink, players, puck, HUD, menu and league screens.
 module HockeyDemo.Renderer
 
+open Microsoft.Xna.Framework
 open Microsoft.Xna.Framework.Graphics
 open Mibo
+open Mibo.Elmish
 open Mibo.Elmish.Graphics
 open Mibo.Elmish.Graphics2D
 open HockeyDemo.Physics
@@ -76,8 +78,17 @@ let inline gameY (sy: float32) (y: float<px>) = float32 (stripPx y) * sy
 let private fillRect (b: RenderBuffer2D) (x: float32) (y: float32) (w: float32) (h: float32) (color: Color) layer =
     b.fillRect(x, y, w, h, color, layer = layer) |> ignore
 
+// Rect outlines are drawn as four fillRects rather than `.rectOutline`:
+// fillRect and text render through the SpriteBatch while outlines/lines/
+// triangles go through the PrimitiveBatch, and the two batches only keep
+// relative order at flush boundaries. Keeping UI-phase drawing pure
+// SpriteBatch preserves exact insertion-order compositing.
 let private drawRect (b: RenderBuffer2D) (x: float32) (y: float32) (w: float32) (h: float32) (thickness: float32) (color: Color) layer =
-    b.rectOutline(x, y, w, h, color, thickness = thickness, layer = layer) |> ignore
+    b.fillRect(x, y, w, thickness, color, layer = layer)
+     .fillRect(x, y + h - thickness, w, thickness, color, layer = layer)
+     .fillRect(x, y, thickness, h, color, layer = layer)
+     .fillRect(x + w - thickness, y, thickness, h, color, layer = layer)
+    |> ignore
 
 let private drawLine (b: RenderBuffer2D) (x1: float32) (y1: float32) (x2: float32) (y2: float32) (thickness: float32) (color: Color) layer =
     b.lineThick(v2 x1 y1, v2 x2 y2, color, thickness = thickness, layer = layer) |> ignore
@@ -369,7 +380,8 @@ let drawHud (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) sx sy (rinkBo
     let hudH = HudHeight * sy
 
     fillRect b 0.0f hudY width hudH hudBg LHud
-    drawLine b 0.0f hudY width hudY 2.0f boardColor LHud
+    // SpriteBatch fill, not a primitive line — keeps the HUD phase batch-pure
+    fillRect b 0.0f (hudY - 1.0f) width 2.0f boardColor LHud
 
     let fontSize = max 12.0f (12.0f * min sx sy)
     let smallSize = fontSize * 0.75f
@@ -525,9 +537,9 @@ let drawLeagueStandings (b: RenderBuffer2D) (font: SpriteFont) (width: float32) 
         let hx = if i = 0 then tableX else tableX + colPositions.[i - 1]
         drawText b font medSize hx headerY h grayColor LRink)
 
-    // Separator
+    // Separator (SpriteBatch fill, not a primitive line — see drawRect note)
     let sepY = headerY + medSize * 1.4f
-    drawLine b tableX sepY (width - tableX) sepY 1.0f (Color.rgb 60uy 80uy 120uy) LRink
+    fillRect b tableX (sepY - 0.5f) (width - tableX * 2.0f) 1.0f (Color.rgb 60uy 80uy 120uy) LRink
 
     // Rows
     let dataY = sepY + 4.0f
@@ -657,6 +669,17 @@ let renderFrame (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: f
     let sx = s * par
     let sy = s
 
+    // Rink content (fills via SpriteBatch, players/lines/circles via
+    // PrimitiveBatch) is bracketed in an identity camera: BeginCamera and
+    // EndCamera are the renderer's batch-flush points, which is what makes
+    // the HUD/overlay text drawn after endCamera composite ON TOP of the
+    // world primitives. Without the bracket the frame is a single batch
+    // stretch and all primitives would draw over all text and fills.
+    let identityCam =
+        Camera2D.create (Vector2(w / 2.0f, h / 2.0f)) 1.0f (Vector2(w, h))
+
+    b.beginCamera(identityCam, layer = LBg) |> ignore
+
     fillRect b 0.0f 0.0f w h bgColor LBg
 
     // HUD is anchored to the bottom edge; the rink is centered in the space
@@ -724,6 +747,10 @@ let renderFrame (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: f
             gs.StickAnimTimers.[ei]
             isGoalie
             (int gs.GameTick)
+
+    // Close the world bracket: flushes both batches so the HUD and overlays
+    // below render strictly on top of the rink and players.
+    b.endCamera(layer = LMarker) |> ignore
 
     // HUD (spans the full width, anchored to the bottom edge)
     let rinkBottom = h - hudH - 2.0f
