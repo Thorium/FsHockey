@@ -3,23 +3,28 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
+    <ApplicationIcon>Icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.4.1" />
-    <PackageReference Include="FontStashSharp.MonoGame" Version="1.5.4" />
+    <PackageReference Update="FSharp.Core" Version="10.1.302" />
+    <PackageReference Include="Mibo.MonoGame" Version="3.1.1" />
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.5" />
+    <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.5" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="Physics.fs" />
     <Compile Include="Game.fs" />
-    <Compile Include="Drawing.fs" />
+    <Compile Include="App.fs" />
     <Compile Include="Renderer.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="RobotoMono-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <MonoGameContentReference Include="Content\Content.mgcb" />
+    <EmbeddedResource Include="Icon.ico" />
+    <EmbeddedResource Include="Icon.bmp" />
   </ItemGroup>
 
 </Project>

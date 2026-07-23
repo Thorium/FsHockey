@@ -1,12 +1,13 @@
-/// THE FS HOCKEY LEAGUE — Renderer (MonoGame)
-/// SpriteBatch drawing: ice rink, players, puck, HUD, goal flash, game-over
+/// THE FS HOCKEY LEAGUE — Renderer (Mibo)
+/// Declarative frame building with Mibo's fluent 2D draw DSL:
+/// ice rink, players, puck, HUD, menu and league screens.
 module HockeyDemo.Renderer
 
-open Microsoft.Xna.Framework
 open Microsoft.Xna.Framework.Graphics
-open FontStashSharp
+open Mibo
+open Mibo.Elmish.Graphics
+open Mibo.Elmish.Graphics2D
 open HockeyDemo.Physics
-open HockeyDemo.Drawing
 open HockeyDemo.Game
 
 // ─── Scale / Layout ────────────────────────────────────────────────────
@@ -20,94 +21,51 @@ let OrigH = 200.0f
 [<Literal>]
 let HudHeight = 48.0f
 
+// ─── Render Layers ─────────────────────────────────────────────────────
+// Mibo sorts draw commands by layer (insertion order within a layer), so
+// the frame can be described declaratively instead of in paint order.
+
+let private LBg = 0<RenderLayer>
+let private LRink = 1<RenderLayer>
+let private LTrail = 2<RenderLayer>
+let private LPuck = 3<RenderLayer>
+let private LPlayer = 4<RenderLayer>
+let private LMarker = 5<RenderLayer>
+let private LHud = 6<RenderLayer>
+let private LOverlay = 7<RenderLayer>
+
 // ─── Colors (CGA-inspired) ────────────────────────────────────────────
 
-let iceColor = Color(200, 220, 240)
-let boardColor = Color(60, 80, 120)
-let lineColor = Color(180, 40, 40)
-let blueLineColor = Color(40, 80, 180)
-let team1Color = Color(220, 60, 60)
-let team1Light = Color(255, 120, 120)
-let team2Color = Color(60, 100, 220)
-let team2Light = Color(120, 160, 255)
-let puckColor = Color(20, 20, 20)
-let puckHighlight = Color(60, 60, 60)
-let hudBg = Color(20, 20, 40)
-let hudText = Color(220, 220, 220)
-let goalFlashColor = Color(255, 255, 80)
-let activeMarkerColor = Color(90, 255, 120)   // green caret over the controlled player
-let stickBrown = Color(139, 90, 43)
-let stickTape = Color(240, 240, 240)
-let helmetBlack = Color(30, 30, 30)
-let helmetGold = Color(200, 180, 40)
-let trouserColor = Color(30, 30, 30)
-let skateColor = Color(80, 80, 80)
-let goaliePadColor = Color(230, 220, 200)
-let goalieMaskColor = Color(220, 220, 220)
-let skinColor = Color(230, 195, 160)
-let gloveColor = Color(60, 60, 60)
-let sockColor = Color(200, 200, 210)
-let bgColor = Color(30, 30, 50)
-let grayColor = Color(160, 160, 160)
-
-// ─── Font System ──────────────────────────────────────────────────────
-
-let mutable private fontSystem: FontSystem = null
-let mutable private fontLoaded = false
-
-let initFonts (_device: GraphicsDevice) =
-    let settings = FontSystemSettings()
-    fontSystem <- new FontSystem(settings)
-
-    // Discover monospace fonts across platforms (Linux, macOS, Windows)
-    let fontPaths =
-        [| "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
-           "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
-           "/usr/share/fonts/truetype/freefont/FreeMono.ttf"
-           "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"
-           "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf"
-           "/usr/share/fonts/TTF/DejaVuSansMono.ttf"
-           "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf"
-           "/System/Library/Fonts/Menlo.ttc"
-           "/Library/Fonts/Courier New.ttf"
-           "C:\\Windows\\Fonts\\consola.ttf"
-           "C:\\Windows\\Fonts\\cour.ttf"
-           "C:\\Windows\\Fonts\\lucon.ttf" |]
-
-    for path in fontPaths do
-        if not fontLoaded && System.IO.File.Exists(path) then
-            try
-                fontSystem.AddFont(System.IO.File.ReadAllBytes(path))
-                fontLoaded <- true
-            with
-            | _ -> ()
-
-    // Bundled fallback font (Roboto Mono, Apache 2.0) next to the executable
-    if not fontLoaded then
-        let bundledPath = System.IO.Path.Combine(System.AppContext.BaseDirectory, "RobotoMono-Regular.ttf")
-        if System.IO.File.Exists(bundledPath) then
-            try
-                fontSystem.AddFont(System.IO.File.ReadAllBytes(bundledPath))
-                fontLoaded <- true
-            with
-            | _ -> ()
-
-    if not fontLoaded then
-        eprintfn "WARNING: No monospace font found. All text will be invisible."
-        eprintfn "  Searched system fonts and bundled fallback (RobotoMono-Regular.ttf)."
-
-let disposeFonts () =
-    if fontSystem <> null then
-        fontSystem.Dispose()
-        fontSystem <- null
-
-let private getFont (size: float32) =
-    if fontSystem <> null && fontLoaded then
-        Some(fontSystem.GetFont(size))
-    else
-        None
+let iceColor = Color.rgb 200uy 220uy 240uy
+let boardColor = Color.rgb 60uy 80uy 120uy
+let lineColor = Color.rgb 180uy 40uy 40uy
+let blueLineColor = Color.rgb 40uy 80uy 180uy
+let team1Color = Color.rgb 220uy 60uy 60uy
+let team2Color = Color.rgb 60uy 100uy 220uy
+let puckColor = Color.rgb 20uy 20uy 20uy
+let puckHighlight = Color.rgb 60uy 60uy 60uy
+let hudBg = Color.rgb 20uy 20uy 40uy
+let hudText = Color.rgb 220uy 220uy 220uy
+let goalFlashColor = Color.rgb 255uy 255uy 80uy
+let activeMarkerColor = Color.rgb 90uy 255uy 120uy // green caret over the controlled player
+let stickBrown = Color.rgb 139uy 90uy 43uy
+let stickTape = Color.rgb 240uy 240uy 240uy
+let helmetBlack = Color.rgb 30uy 30uy 30uy
+let helmetGold = Color.rgb 200uy 180uy 40uy
+let trouserColor = Color.rgb 30uy 30uy 30uy
+let skateColor = Color.rgb 80uy 80uy 80uy
+let goaliePadColor = Color.rgb 230uy 220uy 200uy
+let goalieMaskColor = Color.rgb 220uy 220uy 220uy
+let skinColor = Color.rgb 230uy 195uy 160uy
+let gloveColor = Color.rgb 60uy 60uy 60uy
+let sockColor = Color.rgb 200uy 200uy 210uy
+let bgColor = Color.rgb 30uy 30uy 50uy
+let grayColor = Color.rgb 160uy 160uy 160uy
+let private white = Color.White
 
 // ─── Drawing Helpers ──────────────────────────────────────────────────
+
+let inline private v2 (x: float32) (y: float32) = System.Numerics.Vector2(x, y)
 
 /// Scale game X-coordinate to screen
 let inline gameX (sx: float32) (x: float<px>) = float32 (stripPx x) * sx
@@ -115,19 +73,62 @@ let inline gameX (sx: float32) (x: float<px>) = float32 (stripPx x) * sx
 /// Scale game Y-coordinate to screen
 let inline gameY (sy: float32) (y: float<px>) = float32 (stripPx y) * sy
 
+let private fillRect (b: RenderBuffer2D) (x: float32) (y: float32) (w: float32) (h: float32) (color: Color) layer =
+    b.fillRect(x, y, w, h, color, layer = layer) |> ignore
+
+let private drawRect (b: RenderBuffer2D) (x: float32) (y: float32) (w: float32) (h: float32) (thickness: float32) (color: Color) layer =
+    b.rectOutline(x, y, w, h, color, thickness = thickness, layer = layer) |> ignore
+
+let private drawLine (b: RenderBuffer2D) (x1: float32) (y1: float32) (x2: float32) (y2: float32) (thickness: float32) (color: Color) layer =
+    b.lineThick(v2 x1 y1, v2 x2 y2, color, thickness = thickness, layer = layer) |> ignore
+
+let private fillCircle (b: RenderBuffer2D) (cx: float32) (cy: float32) (r: float32) (color: Color) layer =
+    b.fillCircle(v2 cx cy, r, color, layer = layer) |> ignore
+
+/// Draw a dashed line.
+let private drawDashedLine (b: RenderBuffer2D) (x1: float32) (y1: float32) (x2: float32) (y2: float32) (thickness: float32) (dashLen: float32) (color: Color) layer =
+    let dx = x2 - x1
+    let dy = y2 - y1
+    let length = sqrt (dx * dx + dy * dy)
+
+    if length > 0.001f then
+        let nx = dx / length
+        let ny = dy / length
+        let mutable t = 0.0f
+        let mutable draw = true
+
+        while t < length do
+            let segLen = min dashLen (length - t)
+
+            if draw then
+                drawLine b (x1 + nx * t) (y1 + ny * t) (x1 + nx * (t + segLen)) (y1 + ny * (t + segLen)) thickness color layer
+
+            t <- t + dashLen
+            draw <- not draw
+
+// ─── Text ─────────────────────────────────────────────────────────────
+// The spritefont is baked at 32 px; the DSL's `size` argument is a uniform
+// scale on the MonoGame backend, so a pixel size maps to size/32.
+
+[<Literal>]
+let private BakedFontPx = 32.0f
+
+let private drawText (b: RenderBuffer2D) (font: SpriteFont) (sizePx: float32) (x: float32) (y: float32) (text: string) (color: Color) layer =
+    b.text(font, text, v2 x y, sizePx / BakedFontPx, tint = color, layer = layer) |> ignore
+
+/// Measured (width, height) of text at the given pixel size
+let private measureText (font: SpriteFont) (sizePx: float32) (text: string) =
+    let s = font.MeasureString(text)
+    let k = sizePx / BakedFontPx
+    struct (s.X * k, s.Y * k)
+
 /// Draw a string centered horizontally at the given Y position
-let private drawCentered (sb: SpriteBatch) (font: SpriteFontBase) width y (text: string) (color: Color) =
-    let sz = font.MeasureString(text)
-    font.DrawText(sb, text, Vector2((width - sz.X) / 2.0f, y), color) |> ignore
+let private drawCentered (b: RenderBuffer2D) (font: SpriteFont) (sizePx: float32) (width: float32) (y: float32) (text: string) (color: Color) layer =
+    let struct (tw, _) = measureText font sizePx text
+    drawText b font sizePx ((width - tw) / 2.0f) y text color layer
 
-/// Draw text at a position (wraps DrawText with ignore)
-let private drawText (font: SpriteFontBase) (sb: SpriteBatch) (text: string) (pos: Vector2) (color: Color) =
-    font.DrawText(sb, text, pos, color) |> ignore
-
-/// Create font sizes at a given scale factor.
-/// Uses the same numeric values as the original GDI+ point sizes.
-/// DejaVu Sans Mono (FontStashSharp) renders comparably to Consolas (GDI+)
-/// at the same numeric size, so no extra multiplier is needed.
+/// Font pixel sizes at a given scale factor (same numeric values as the
+/// original GDI+ point sizes).
 let private mkFonts (scale: float32) =
     let big = max 8.0f (9.0f * scale)
     let med = max 7.0f (6.0f * scale)
@@ -136,83 +137,97 @@ let private mkFonts (scale: float32) =
 
 // ─── Draw Rink ────────────────────────────────────────────────────────
 
-let drawRink (sb: SpriteBatch) sx sy leftGoalColor rightGoalColor =
+let drawRink (b: RenderBuffer2D) sx sy (offX: float32) (offY: float32) (leftGoalColor: Color) (rightGoalColor: Color) =
     let rinkW = OrigW * sx
     let rinkH = gameY sy FieldBottom + 4.0f * sy
-    let fl, fr = gameX sx FieldLeft, gameX sx FieldRight
-    let ft, fb = gameY sy FieldTop, gameY sy FieldBottom
-    let gt, gb = gameY sy GoalTop, gameY sy GoalBottom
+    let fl, fr = offX + gameX sx FieldLeft, offX + gameX sx FieldRight
+    let ft, fb = offY + gameY sy FieldTop, offY + gameY sy FieldBottom
+    let gt, gb = offY + gameY sy GoalTop, offY + gameY sy GoalBottom
     let gd = float32 (stripPx GoalDepth) * sx
-    let cx = gameX sx CenterX
-    let cy = gameY sy CenterY
+    let cx = offX + gameX sx CenterX
+    let cy = offY + gameY sy CenterY
 
     // Ice surface
-    fillRect sb 0.0f 0.0f rinkW rinkH iceColor
+    fillRect b offX offY rinkW rinkH iceColor LRink
 
     // Board outline
-    drawRect sb fl ft (fr - fl) (fb - ft) 3.0f boardColor
+    drawRect b fl ft (fr - fl) (fb - ft) 3.0f boardColor LRink
 
     // Goal nets
     let drawGoalNet x (color: Color) =
-        let netColor = Color(color.R, color.G, color.B, 60uy)
-        fillRect sb x gt gd (gb - gt) netColor
-        drawRect sb x gt gd (gb - gt) 2.0f color
+        let netColor = Color.create color.R color.G color.B 60uy
+        fillRect b x gt gd (gb - gt) netColor LRink
+        drawRect b x gt gd (gb - gt) 2.0f color LRink
 
     drawGoalNet (fl - gd) leftGoalColor
     drawGoalNet fr rightGoalColor
 
     // Center line + circle
-    drawLine sb cx ft cx fb 1.5f lineColor
+    drawLine b cx ft cx fb 1.5f lineColor LRink
     let circR = 20.0f * sx
-    drawEllipse sb cx cy circR circR 1.5f lineColor iceColor
+    fillCircle b cx cy circR lineColor LRink
+    fillCircle b cx cy (circR - 1.5f) iceColor LRink
 
     // Center dot
-    fillEllipse sb cx cy 3.0f 3.0f lineColor
+    fillCircle b cx cy 3.0f lineColor LRink
 
     // Blue lines (1/3 and 2/3 of field width)
     let fieldW = stripPx FieldRight - stripPx FieldLeft
-    let bl1 = gameX sx (FieldLeft + fieldW / 3.0 * 1.0<px>)
-    let bl2 = gameX sx (FieldLeft + fieldW / 3.0 * 2.0<px>)
-    drawLine sb bl1 ft bl1 fb 2.0f blueLineColor
-    drawLine sb bl2 ft bl2 fb 2.0f blueLineColor
+    let bl1 = offX + gameX sx (FieldLeft + fieldW / 3.0 * 1.0<px>)
+    let bl2 = offX + gameX sx (FieldLeft + fieldW / 3.0 * 2.0<px>)
+    drawLine b bl1 ft bl1 fb 2.0f blueLineColor LRink
+    drawLine b bl2 ft bl2 fb 2.0f blueLineColor LRink
 
     // Goal lines (red dashed)
-    let glx = gameX sx GoalLeftX
-    let grx = gameX sx GoalRightX
-    drawDashedLine sb glx ft glx fb 1.0f 4.0f lineColor
-    drawDashedLine sb grx ft grx fb 1.0f 4.0f lineColor
+    let glx = offX + gameX sx GoalLeftX
+    let grx = offX + gameX sx GoalRightX
+    drawDashedLine b glx ft glx fb 1.0f 4.0f lineColor LRink
+    drawDashedLine b grx ft grx fb 1.0f 4.0f lineColor LRink
 
 // ─── Draw Retro Hockey Player ──────────────────────────────────────────
 
-let drawRetroPlayer (sb: SpriteBatch) sx sy (offX: float32) (offY: float32) (ent: Entity) jerseyColor helmetColor isActive (stickAnim: int) isGoalie (gameTick: int) =
-    let screenX = gameX sx ent.X
-    let screenY = gameY sy ent.Y
+let drawRetroPlayer (b: RenderBuffer2D) sx sy (offX: float32) (offY: float32) (ent: Entity) (jerseyColor: Color) (helmetColor: Color) isActive (stickAnim: int) isGoalie (gameTick: int) =
+    let px = offX + gameX sx ent.X
+    let py = offY + gameY sy ent.Y
     let u = 0.85f * sx
     let uy = 0.85f * sy
 
-    // ─── Rotation: face direction of DirX/DirY (matches original GDI+ behavior) ───
-    // Compute rotation angle from direction vector
-    let angleRad =
+    // Rotation: face direction of DirX/DirY. Without SpriteBatch transform
+    // matrices, the body parts are rotated point-by-point around the entity
+    // center: rects become two triangles, lines rotate their endpoints.
+    let angle =
         if ent.DirX <> 0.0 || ent.DirY <> 0.0 then
             float32 (System.Math.Atan2(float ent.DirX, -(float ent.DirY)))
         else
             0.0f
 
-    // End the current SpriteBatch, begin a new one with rotation transform around the entity position.
-    // This mirrors the GDI+ TranslateTransform + RotateTransform approach.
-    sb.End()
-    let rotMatrix =
-        Matrix.CreateTranslation(-screenX, -screenY, 0.0f)
-        * Matrix.CreateRotationZ(angleRad)
-        * Matrix.CreateTranslation(screenX + offX, screenY + offY, 0.0f)
-    sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied, transformMatrix = rotMatrix)
+    let sinA = sin angle
+    let cosA = cos angle
 
-    // Draw body at origin-relative coordinates (px, py = screenX, screenY)
-    let px = screenX
-    let py = screenY
+    let rot (x: float32) (y: float32) =
+        let dx = x - px
+        let dy = y - py
+        v2 (px + dx * cosA - dy * sinA) (py + dx * sinA + dy * cosA)
+
+    /// Axis-aligned rect in body space, rotated around the entity center
+    let rectR (x: float32) (y: float32) (w: float32) (h: float32) (color: Color) =
+        b.triangle(rot x y, rot (x + w) y, rot (x + w) (y + h), color, layer = LPlayer)
+         .triangle(rot x y, rot (x + w) (y + h), rot x (y + h), color, layer = LPlayer)
+        |> ignore
+
+    let rectOutlineR (x: float32) (y: float32) (w: float32) (h: float32) (thickness: float32) (color: Color) =
+        rectR x y w thickness color
+        rectR x (y + h - thickness) w thickness color
+        rectR x y thickness h color
+        rectR (x + w - thickness) y thickness h color
+
+    let lineR (x1: float32) (y1: float32) (x2: float32) (y2: float32) (thickness: float32) (color: Color) =
+        b.lineThick(rot x1 y1, rot x2 y2, color, thickness = thickness, layer = LPlayer)
+        |> ignore
 
     // Skating leg animation — slow oscillation to look like skating, not running
     let speedSq = float ent.VelX * float ent.VelX + float ent.VelY * float ent.VelY
+
     let legOffset =
         if speedSq > 16.0 then
             sin (float32 gameTick * 0.08f) * 1.2f * uy * 0.3f
@@ -220,84 +235,85 @@ let drawRetroPlayer (sb: SpriteBatch) sx sy (offX: float32) (offY: float32) (ent
             0.0f
 
     // ─── Helmet (head)
-    fillRect sb (px - 1.5f * u) (py - 5.5f * uy) (3.0f * u) (2.0f * uy) helmetColor
+    rectR (px - 1.5f * u) (py - 5.5f * uy) (3.0f * u) (2.0f * uy) helmetColor
 
     // Face area (skin visible below helmet)
-    fillRect sb (px - 1.0f * u) (py - 3.5f * uy) (2.0f * u) (1.0f * uy) skinColor
+    rectR (px - 1.0f * u) (py - 3.5f * uy) (2.0f * u) (1.0f * uy) skinColor
 
     // Goalie face mask
     if isGoalie then
         let maskX = px + 0.3f * u
-        fillRect sb maskX (py - 4.5f * uy) (1.2f * u) (1.5f * uy) goalieMaskColor
-        let cagePen = Color(100, 100, 100)
+        rectR maskX (py - 4.5f * uy) (1.2f * u) (1.5f * uy) goalieMaskColor
+        let cagePen = Color.rgb 100uy 100uy 100uy
         let cageW = max 0.5f (0.3f * u)
         let cx0 = maskX + 0.3f * u
         let cx1 = maskX + 0.9f * u
-        drawLine sb cx0 (py - 4.5f * uy) cx0 (py - 3.0f * uy) cageW cagePen
-        drawLine sb cx1 (py - 4.5f * uy) cx1 (py - 3.0f * uy) cageW cagePen
+        lineR cx0 (py - 4.5f * uy) cx0 (py - 3.0f * uy) cageW cagePen
+        lineR cx1 (py - 4.5f * uy) cx1 (py - 3.0f * uy) cageW cagePen
 
     // ─── Jersey (body)
     // Shoulders
-    fillRect sb (px - 3.5f * u) (py - 2.5f * uy) (7.0f * u) (1.5f * uy) jerseyColor
+    rectR (px - 3.5f * u) (py - 2.5f * uy) (7.0f * u) (1.5f * uy) jerseyColor
     // Torso
-    fillRect sb (px - 3.0f * u) (py - 1.0f * uy) (6.0f * u) (2.5f * uy) jerseyColor
+    rectR (px - 3.0f * u) (py - 1.0f * uy) (6.0f * u) (2.5f * uy) jerseyColor
     // Jersey stripe
-    let stripeColor = Color(255, 255, 255, 80)
-    fillRect sb (px - 3.0f * u) (py - 0.5f * uy) (6.0f * u) (0.6f * uy) stripeColor
+    let stripeColor = Color.create 255uy 255uy 255uy 80uy
+    rectR (px - 3.0f * u) (py - 0.5f * uy) (6.0f * u) (0.6f * uy) stripeColor
 
     // ─── Arms / Gloves
     // Left arm
-    fillRect sb (px - 4.0f * u) (py - 2.0f * uy) (1.2f * u) (2.0f * uy) jerseyColor
-    fillRect sb (px - 4.0f * u) (py + 0.0f * uy) (1.2f * u) (0.8f * uy) gloveColor
+    rectR (px - 4.0f * u) (py - 2.0f * uy) (1.2f * u) (2.0f * uy) jerseyColor
+    rectR (px - 4.0f * u) (py + 0.0f * uy) (1.2f * u) (0.8f * uy) gloveColor
     // Right arm
-    fillRect sb (px + 2.8f * u) (py - 2.0f * uy) (1.2f * u) (2.0f * uy) jerseyColor
-    fillRect sb (px + 2.8f * u) (py + 0.0f * uy) (1.2f * u) (0.8f * uy) gloveColor
+    rectR (px + 2.8f * u) (py - 2.0f * uy) (1.2f * u) (2.0f * uy) jerseyColor
+    rectR (px + 2.8f * u) (py + 0.0f * uy) (1.2f * u) (0.8f * uy) gloveColor
 
     // ─── Trousers / Goalie pads
     if isGoalie then
         // Hips
-        fillRect sb (px - 3.5f * u) (py + 1.5f * uy) (7.0f * u) (1.2f * uy) goaliePadColor
+        rectR (px - 3.5f * u) (py + 1.5f * uy) (7.0f * u) (1.2f * uy) goaliePadColor
         // Leg pads
-        fillRect sb (px - 3.5f * u) (py + 2.7f * uy) (3.0f * u) (2.0f * uy) goaliePadColor
-        fillRect sb (px + 0.5f * u) (py + 2.7f * uy) (3.0f * u) (2.0f * uy) goaliePadColor
+        rectR (px - 3.5f * u) (py + 2.7f * uy) (3.0f * u) (2.0f * uy) goaliePadColor
+        rectR (px + 0.5f * u) (py + 2.7f * uy) (3.0f * u) (2.0f * uy) goaliePadColor
         // Pad outlines
-        let outlineColor = Color(160, 150, 130)
+        let outlineColor = Color.rgb 160uy 150uy 130uy
         let outlineW = max 1.0f (0.4f * u)
-        drawRect sb (px - 3.5f * u) (py + 2.7f * uy) (3.0f * u) (2.0f * uy) outlineW outlineColor
-        drawRect sb (px + 0.5f * u) (py + 2.7f * uy) (3.0f * u) (2.0f * uy) outlineW outlineColor
+        rectOutlineR (px - 3.5f * u) (py + 2.7f * uy) (3.0f * u) (2.0f * uy) outlineW outlineColor
+        rectOutlineR (px + 0.5f * u) (py + 2.7f * uy) (3.0f * u) (2.0f * uy) outlineW outlineColor
     else
         // Hips
-        fillRect sb (px - 3.0f * u) (py + 1.5f * uy) (6.0f * u) (1.2f * uy) trouserColor
+        rectR (px - 3.0f * u) (py + 1.5f * uy) (6.0f * u) (1.2f * uy) trouserColor
         // Left leg (animated)
-        fillRect sb (px - 2.5f * u) (py + 2.7f * uy + legOffset) (2.2f * u) (1.0f * uy) trouserColor
+        rectR (px - 2.5f * u) (py + 2.7f * uy + legOffset) (2.2f * u) (1.0f * uy) trouserColor
         // Right leg (animated opposite)
-        fillRect sb (px + 0.3f * u) (py + 2.7f * uy - legOffset) (2.2f * u) (1.0f * uy) trouserColor
+        rectR (px + 0.3f * u) (py + 2.7f * uy - legOffset) (2.2f * u) (1.0f * uy) trouserColor
         // Socks
-        fillRect sb (px - 2.2f * u) (py + 3.5f * uy + legOffset) (1.8f * u) (0.5f * uy) sockColor
-        fillRect sb (px + 0.4f * u) (py + 3.5f * uy - legOffset) (1.8f * u) (0.5f * uy) sockColor
+        rectR (px - 2.2f * u) (py + 3.5f * uy + legOffset) (1.8f * u) (0.5f * uy) sockColor
+        rectR (px + 0.4f * u) (py + 3.5f * uy - legOffset) (1.8f * u) (0.5f * uy) sockColor
 
     // ─── Skate blades
     let skateW = max 1.0f (0.5f * u)
 
     if isGoalie then
         let skateY = py + 4.8f * uy
-        drawLine sb (px - 2.0f * u) skateY (px - 0.5f * u) skateY skateW skateColor
-        drawLine sb (px + 0.5f * u) skateY (px + 2.0f * u) skateY skateW skateColor
+        lineR (px - 2.0f * u) skateY (px - 0.5f * u) skateY skateW skateColor
+        lineR (px + 0.5f * u) skateY (px + 2.0f * u) skateY skateW skateColor
     else
         let skateYL = py + 4.0f * uy + legOffset
         let skateYR = py + 4.0f * uy - legOffset
-        drawLine sb (px - 2.0f * u) skateYL (px - 0.3f * u) skateYL skateW skateColor
-        drawLine sb (px + 0.3f * u) skateYR (px + 2.0f * u) skateYR skateW skateColor
+        lineR (px - 2.0f * u) skateYL (px - 0.3f * u) skateYL skateW skateColor
+        lineR (px + 0.3f * u) skateYR (px + 2.0f * u) skateYR skateW skateColor
 
     // ─── Stick
     let shaftWidth = max 1.5f (1.2f * u)
+
     let wobble =
         if stickAnim > 0 then
             sin (float32 stickAnim * 1.5f) * 2.5f * u
         else
             0.0f
 
-    // Stick always points forward (faceDir=1) since the whole sprite rotates
+    // Stick always points forward (faceDir=1) since the whole body rotates
     let faceDir = 1.0f
 
     let stickLen = 7.0f * u
@@ -306,46 +322,37 @@ let drawRetroPlayer (sb: SpriteBatch) sx sy (offX: float32) (offY: float32) (ent
     let endX = startX + faceDir * 2.5f * u
     let endY = startY - stickLen + wobble
 
-    drawLine sb startX startY endX endY shaftWidth stickBrown
+    lineR startX startY endX endY shaftWidth stickBrown
 
     // Tape on handle
     let tapeFrac = 0.18f
     let tapeEndX = startX + (endX - startX) * tapeFrac
     let tapeEndY = startY + (endY - startY) * tapeFrac
-    drawLine sb startX startY tapeEndX tapeEndY (shaftWidth + 0.5f) stickTape
+    lineR startX startY tapeEndX tapeEndY (shaftWidth + 0.5f) stickTape
 
     // Blade
     let bladeLen = 2.5f * u
     let bladeW = max 2.0f (1.4f * u)
     let bladeEndX = endX + faceDir * bladeLen
     let bladeEndY = endY - 0.8f * uy
-    drawLine sb endX endY bladeEndX bladeEndY bladeW stickBrown
-
-    // End the rotated SpriteBatch, restart the caller's offset-translated one
-    sb.End()
-
-    sb.Begin(
-        SpriteSortMode.Deferred,
-        BlendState.NonPremultiplied,
-        transformMatrix = Matrix.CreateTranslation(offX, offY, 0.0f)
-    )
+    lineR endX endY bladeEndX bladeEndY bladeW stickBrown
 
     // ─── Active player marker (drawn in rink space, NOT rotated)
     if isActive then
-        let my = screenY - 6.5f * uy
+        let my = py - 6.5f * uy
         let ms = 2.0f * sx
         let markerW = max 1.0f (1.2f * sx)
-        drawLine sb (screenX - ms) (my - ms) screenX my markerW activeMarkerColor
-        drawLine sb screenX my (screenX + ms) (my - ms) markerW activeMarkerColor
+        drawLine b (px - ms) (my - ms) px my markerW activeMarkerColor LMarker
+        drawLine b px my (px + ms) (my - ms) markerW activeMarkerColor LMarker
 
 // ─── Draw Puck ────────────────────────────────────────────────────────
 
-let drawPuck (sb: SpriteBatch) sx sy (puck: Entity) (animFrame: int) =
-    let px = gameX sx puck.X
-    let py = gameY sy puck.Y
+let drawPuck (b: RenderBuffer2D) sx sy (offX: float32) (offY: float32) (puck: Entity) (animFrame: int) =
+    let px = offX + gameX sx puck.X
+    let py = offY + gameY sy puck.Y
     let r = 2.5f * sx
 
-    fillEllipse sb px py r r puckColor
+    fillCircle b px py r puckColor LPuck
 
     // Spinning highlight: orbits the puck center once per animation cycle
     let phase = float32 animFrame / float32 (PuckAnimFrames * 2) * (2.0f * float32 System.Math.PI)
@@ -353,327 +360,291 @@ let drawPuck (sb: SpriteBatch) sx sy (puck: Entity) (animFrame: int) =
     let orbit = r * 0.35f
     let hx = px + cos phase * orbit
     let hy = py - 0.5f + sin phase * orbit
-    fillEllipse sb hx hy hr hr puckHighlight
+    fillCircle b hx hy hr puckHighlight LPuck
 
 // ─── Draw HUD ─────────────────────────────────────────────────────────
 
-let drawHud (sb: SpriteBatch) (gs: GameState) sx sy rinkBottom width =
+let drawHud (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) sx sy (rinkBottom: float32) (width: float32) =
     let hudY = rinkBottom + 2.0f
     let hudH = HudHeight * sy
 
-    fillRect sb 0.0f hudY width hudH hudBg
-    drawLine sb 0.0f hudY width hudY 2.0f boardColor
+    fillRect b 0.0f hudY width hudH hudBg LHud
+    drawLine b 0.0f hudY width hudY 2.0f boardColor LHud
 
     let fontSize = max 12.0f (12.0f * min sx sy)
     let smallSize = fontSize * 0.75f
 
-    match getFont fontSize, getFont smallSize with
-    | Some font, Some smallFont ->
-        // Team 1 name + score (left)
-        drawText smallFont sb teamNames.[gs.Team1Idx] (Vector2(10.0f * sx, hudY + 4.0f)) team1Color
-        drawText font sb $"{gs.Team1Score}" (Vector2(10.0f * sx, hudY + 4.0f + fontSize * 1.1f)) team1Color
+    // Team 1 name + score (left)
+    drawText b font smallSize (10.0f * sx) (hudY + 4.0f) teamNames.[gs.Team1Idx] team1Color LHud
+    drawText b font fontSize (10.0f * sx) (hudY + 4.0f + fontSize * 1.1f) $"{gs.Team1Score}" team1Color LHud
 
-        // Team 2 name + score (right)
-        let t2Name = teamNames.[gs.Team2Idx]
-        let t2Size = smallFont.MeasureString(t2Name)
-        drawText smallFont sb t2Name (Vector2(width - t2Size.X - 10.0f * sx, hudY + 4.0f)) team2Color
-        let s2Str = $"{gs.Team2Score}"
-        let s2Size = font.MeasureString(s2Str)
-        drawText font sb s2Str (Vector2(width - s2Size.X - 10.0f * sx, hudY + 4.0f + fontSize * 1.1f)) team2Color
+    // Team 2 name + score (right)
+    let t2Name = teamNames.[gs.Team2Idx]
+    let struct (t2W, _) = measureText font smallSize t2Name
+    drawText b font smallSize (width - t2W - 10.0f * sx) (hudY + 4.0f) t2Name team2Color LHud
+    let s2Str = $"{gs.Team2Score}"
+    let struct (s2W, _) = measureText font fontSize s2Str
+    drawText b font fontSize (width - s2W - 10.0f * sx) (hudY + 4.0f + fontSize * 1.1f) s2Str team2Color LHud
 
-        // Clock (center) — counts DOWN to the period end
-        let secs = max 0 (int gs.PeriodLength - int gs.ClockSeconds)
-        let clockStr = $"{secs / 60}:{secs % 60:D2}"
-        drawCentered sb font width (hudY + 4.0f) clockStr hudText
+    // Clock (center) — counts DOWN to the period end
+    let secs = max 0 (int gs.PeriodLength - int gs.ClockSeconds)
+    let clockStr = $"{secs / 60}:{secs % 60:D2}"
+    drawCentered b font fontSize width (hudY + 4.0f) clockStr hudText LHud
 
-        // Period info ("FINAL RESULT" once the match is over)
-        let periodStr =
-            if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then "FINAL RESULT"
-            elif gs.NumPeriods > 1 then $"PERIOD {gs.CurrentPeriod + 1} of {gs.NumPeriods}"
-            else ""
+    // Period info ("FINAL RESULT" once the match is over)
+    let periodStr =
+        if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then "FINAL RESULT"
+        elif gs.NumPeriods > 1 then $"PERIOD {gs.CurrentPeriod + 1} of {gs.NumPeriods}"
+        else ""
 
-        if periodStr <> "" then
-            drawCentered sb smallFont width (hudY + 4.0f + fontSize * 1.1f) periodStr hudText
-    | _ -> ()
+    if periodStr <> "" then
+        drawCentered b font smallSize width (hudY + 4.0f + fontSize * 1.1f) periodStr hudText LHud
 
 // ─── Pause Overlay ────────────────────────────────────────────────────
 
-let drawPauseOverlay (sb: SpriteBatch) (width: float32) (height: float32) =
-    fillRect sb 0.0f 0.0f width height (Color(0, 0, 0, 140))
+let drawPauseOverlay (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: float32) =
+    fillRect b 0.0f 0.0f width height (Color.create 0uy 0uy 0uy 140uy) LOverlay
     let scale = min (width / OrigW) (height / OrigH)
-
-    match getFont (max 10.0f (14.0f * scale)), getFont (max 7.0f (6.0f * scale)) with
-    | Some font, Some small ->
-        drawCentered sb font width (height * 0.42f) "PAUSED" goalFlashColor
-        drawCentered sb small width (height * 0.42f + 40.0f * scale) "Press P to continue" grayColor
-    | _ -> ()
+    drawCentered b font (max 10.0f (14.0f * scale)) width (height * 0.42f) "PAUSED" goalFlashColor LOverlay
+    drawCentered b font (max 7.0f (6.0f * scale)) width (height * 0.42f + 40.0f * scale) "Press P to continue" grayColor LOverlay
 
 // ─── Period Start Banner ──────────────────────────────────────────────
 
-let drawPeriodFlash (sb: SpriteBatch) (gs: GameState) (width: float32) (height: float32) =
+let drawPeriodFlash (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: float32) (height: float32) =
     if gs.PeriodFlashTimer > 0<tick> && gs.GoalFlashTimer <= 0<tick> then
         let scale = min (width / OrigW) (height / OrigH)
         let fontSize = max 16.0f (20.0f * scale)
-
-        match getFont fontSize with
-        | Some font ->
-            let banner = $"PERIOD {gs.CurrentPeriod + 1}"
-            let strSize = font.MeasureString(banner)
-            let tx = (width - strSize.X) / 2.0f
-            let ty = (height - strSize.Y) / 2.0f - 20.0f
-            drawText font sb banner (Vector2(tx + 2.0f, ty + 2.0f)) (Color(0, 0, 0, 180))
-            drawText font sb banner (Vector2(tx, ty)) goalFlashColor
-        | None -> ()
+        let banner = $"PERIOD {gs.CurrentPeriod + 1}"
+        let struct (tw, th) = measureText font fontSize banner
+        let tx = (width - tw) / 2.0f
+        let ty = (height - th) / 2.0f - 20.0f
+        drawText b font fontSize (tx + 2.0f) (ty + 2.0f) banner (Color.create 0uy 0uy 0uy 180uy) LOverlay
+        drawText b font fontSize tx ty banner goalFlashColor LOverlay
 
 // ─── Goal Flash Overlay ───────────────────────────────────────────────
 
-let drawGoalFlash (sb: SpriteBatch) (gs: GameState) width height =
+let drawGoalFlash (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: float32) (height: float32) =
     if gs.GoalFlashTimer > 0<tick> then
         let alpha = 60 * int gs.GoalFlashTimer / 90
-        let overlayColor = Color(goalFlashColor.R, goalFlashColor.G, goalFlashColor.B, byte alpha)
-        fillRect sb 0.0f 0.0f width height overlayColor
+        fillRect b 0.0f 0.0f width height (Color.create goalFlashColor.R goalFlashColor.G goalFlashColor.B (byte alpha)) LOverlay
 
         let scale = min (width / OrigW) (height / OrigH)
         let fontSize = max 16.0f (20.0f * scale)
 
-        match getFont fontSize with
-        | Some font ->
-            let scorerName =
-                match gs.GoalScoredBy with
-                | Team1Scored -> teamNames.[gs.Team1Idx]
-                | Team2Scored -> teamNames.[gs.Team2Idx]
-                | NoGoal -> ""
+        let scorerName =
+            match gs.GoalScoredBy with
+            | Team1Scored -> teamNames.[gs.Team1Idx]
+            | Team2Scored -> teamNames.[gs.Team2Idx]
+            | NoGoal -> ""
 
-            let goalStr = $"GOAL! {scorerName}"
-            let strSize = font.MeasureString(goalStr)
-            let tx = (width - strSize.X) / 2.0f
-            let ty = (height - strSize.Y) / 2.0f - 20.0f
+        let goalStr = $"GOAL! {scorerName}"
+        let struct (tw, th) = measureText font fontSize goalStr
+        let tx = (width - tw) / 2.0f
+        let ty = (height - th) / 2.0f - 20.0f
 
-            drawText font sb goalStr (Vector2(tx + 2.0f, ty + 2.0f)) (Color(0, 0, 0, 180))
-            drawText font sb goalStr (Vector2(tx, ty)) goalFlashColor
+        drawText b font fontSize (tx + 2.0f) (ty + 2.0f) goalStr (Color.create 0uy 0uy 0uy 180uy) LOverlay
+        drawText b font fontSize tx ty goalStr goalFlashColor LOverlay
 
-            let scoreStr = $"{gs.Team1Score} - {gs.Team2Score}"
-
-            match getFont (fontSize * 0.7f) with
-            | Some scoreFont ->
-                drawCentered sb scoreFont width (ty + strSize.Y + 4.0f) scoreStr Color.White
-            | None -> ()
-        | None -> ()
+        let scoreStr = $"{gs.Team1Score} - {gs.Team2Score}"
+        drawCentered b font (fontSize * 0.7f) width (ty + th + 4.0f) scoreStr white LOverlay
 
 // ─── Game Over Screen ─────────────────────────────────────────────────
 
-let drawGameOver (sb: SpriteBatch) (gs: GameState) width height leagueMode =
-    fillRect sb 0.0f 0.0f width height (Color(0, 0, 0, 160))
+let drawGameOver (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: float32) (height: float32) leagueMode =
+    fillRect b 0.0f 0.0f width height (Color.create 0uy 0uy 0uy 160uy) LOverlay
 
     let scale = min (width / OrigW) (height / OrigH)
     let struct (bigSize, medSize, smallSize) = mkFonts scale
 
-    match getFont bigSize, getFont medSize, getFont smallSize with
-    | Some bigFont, Some medFont, Some smallFont ->
-        drawCentered sb bigFont width (height * 0.25f) "GAME OVER" goalFlashColor
+    drawCentered b font bigSize width (height * 0.25f) "GAME OVER" goalFlashColor LOverlay
 
-        let scoreStr =
-            $"{teamNames.[gs.Team1Idx]}  {gs.Team1Score}  -  {gs.Team2Score}  {teamNames.[gs.Team2Idx]}"
+    let scoreStr =
+        $"{teamNames.[gs.Team1Idx]}  {gs.Team1Score}  -  {gs.Team2Score}  {teamNames.[gs.Team2Idx]}"
 
-        drawCentered sb medFont width (height * 0.40f) scoreStr Color.White
+    drawCentered b font medSize width (height * 0.40f) scoreStr white LOverlay
 
-        let winner =
-            match sign (compare gs.Team1Score gs.Team2Score) with
-            | 1 -> $"{teamNames.[gs.Team1Idx]} WINS!"
-            | -1 -> $"{teamNames.[gs.Team2Idx]} WINS!"
-            | _ -> "IT'S A TIE!"
+    let winner =
+        match sign (compare gs.Team1Score gs.Team2Score) with
+        | 1 -> $"{teamNames.[gs.Team1Idx]} WINS!"
+        | -1 -> $"{teamNames.[gs.Team2Idx]} WINS!"
+        | _ -> "IT'S A TIE!"
 
-        drawCentered sb medFont width (height * 0.52f) winner goalFlashColor
+    drawCentered b font medSize width (height * 0.52f) winner goalFlashColor LOverlay
 
-        let instrStr =
-            if leagueMode then
-                "Press SPACE for standings"
-            else
-                "Press SPACE for main menu"
+    let instrStr =
+        if leagueMode then
+            "Press SPACE for standings"
+        else
+            "Press SPACE for main menu"
 
-        drawCentered sb smallFont width (height * 0.72f) instrStr (Color(180, 180, 180))
-    | _ -> ()
+    drawCentered b font smallSize width (height * 0.72f) instrStr (Color.rgb 180uy 180uy 180uy) LOverlay
 
 // ─── League Matchup Screen ────────────────────────────────────────────
 
-let drawLeagueMatchup (sb: SpriteBatch) width height roundNum totalRounds (team1Name: string) (team2Name: string) =
-    fillRect sb 0.0f 0.0f width height (Color(10, 10, 30))
+let drawLeagueMatchup (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: float32) roundNum totalRounds (team1Name: string) (team2Name: string) =
+    fillRect b 0.0f 0.0f width height (Color.rgb 10uy 10uy 30uy) LBg
 
     let scale = min (width / OrigW) (height / OrigH)
     let struct (bigSize, medSize, smallSize) = mkFonts scale
 
-    match getFont bigSize, getFont medSize, getFont smallSize with
-    | Some bigFont, Some medFont, Some smallFont ->
-        drawCentered sb bigFont width (height * 0.12f) "LEAGUE MODE" goalFlashColor
-        drawCentered sb medFont width (height * 0.28f) $"ROUND {roundNum} of {totalRounds}" Color.White
-        drawCentered sb medFont width (height * 0.42f) team1Name team1Color
-        drawCentered sb smallFont width (height * 0.52f) "vs" grayColor
-        drawCentered sb medFont width (height * 0.60f) team2Name team2Color
-        drawCentered sb smallFont width (height * 0.80f) "Press SPACE to start match" grayColor
-    | _ -> ()
+    drawCentered b font bigSize width (height * 0.12f) "LEAGUE MODE" goalFlashColor LRink
+    drawCentered b font medSize width (height * 0.28f) $"ROUND {roundNum} of {totalRounds}" white LRink
+    drawCentered b font medSize width (height * 0.42f) team1Name team1Color LRink
+    drawCentered b font smallSize width (height * 0.52f) "vs" grayColor LRink
+    drawCentered b font medSize width (height * 0.60f) team2Name team2Color LRink
+    drawCentered b font smallSize width (height * 0.80f) "Press SPACE to start match" grayColor LRink
 
 // ─── League Standings Screen ──────────────────────────────────────────
 
-let drawLeagueStandings (sb: SpriteBatch) width height (standings: (int * TeamStats) array) isFinal humanTeam =
-    fillRect sb 0.0f 0.0f width height (Color(10, 10, 30))
+let drawLeagueStandings (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: float32) (standings: (int * TeamStats) array) isFinal humanTeam =
+    fillRect b 0.0f 0.0f width height (Color.rgb 10uy 10uy 30uy) LBg
 
     let scale = min (width / OrigW) (height / OrigH)
     let struct (bigSize, medSize, smallSize) = mkFonts scale
 
-    match getFont bigSize, getFont medSize, getFont smallSize with
-    | Some bigFont, Some medFont, Some smallFont ->
-        let title = if isFinal then "FINAL STANDINGS" else "LEAGUE STANDINGS"
-        drawCentered sb bigFont width (height * 0.04f) title goalFlashColor
+    let title = if isFinal then "FINAL STANDINGS" else "LEAGUE STANDINGS"
+    drawCentered b font bigSize width (height * 0.04f) title goalFlashColor LRink
 
-        // Column headers
-        let tableX = width * 0.04f
-        let headerY = height * 0.14f
-        let rowH = smallSize * 1.7f
-        let nameW = width * 0.38f
+    // Column headers
+    let tableX = width * 0.04f
+    let headerY = height * 0.14f
+    let rowH = smallSize * 1.7f
+    let nameW = width * 0.38f
 
-        let colPositions =
-            [| nameW
-               nameW + width * 0.07f
-               nameW + width * 0.14f
-               nameW + width * 0.21f
-               nameW + width * 0.30f
-               nameW + width * 0.40f
-               nameW + width * 0.50f |]
+    let colPositions =
+        [| nameW
+           nameW + width * 0.07f
+           nameW + width * 0.14f
+           nameW + width * 0.21f
+           nameW + width * 0.30f
+           nameW + width * 0.40f
+           nameW + width * 0.50f |]
 
-        [| "TEAM"; "W"; "L"; "D"; "PTS"; "GF"; "GA" |]
-        |> Array.iteri (fun i h ->
-            let hx = if i = 0 then tableX else tableX + colPositions.[i - 1]
-            drawText medFont sb h (Vector2(hx, headerY)) grayColor)
+    [| "TEAM"; "W"; "L"; "D"; "PTS"; "GF"; "GA" |]
+    |> Array.iteri (fun i h ->
+        let hx = if i = 0 then tableX else tableX + colPositions.[i - 1]
+        drawText b font medSize hx headerY h grayColor LRink)
 
-        // Separator
-        let sepY = headerY + medSize * 1.4f
-        drawLine sb tableX sepY (width - tableX) sepY 1.0f (Color(60, 80, 120))
+    // Separator
+    let sepY = headerY + medSize * 1.4f
+    drawLine b tableX sepY (width - tableX) sepY 1.0f (Color.rgb 60uy 80uy 120uy) LRink
 
-        // Rows
-        let dataY = sepY + 4.0f
+    // Rows
+    let dataY = sepY + 4.0f
 
-        standings
-        |> Array.iteri (fun rank (teamIdx, stats) ->
-            let ry = dataY + float32 rank * rowH
-            let isHuman = (teamIdx = humanTeam)
+    standings
+    |> Array.iteri (fun rank (teamIdx, stats) ->
+        let ry = dataY + float32 rank * rowH
+        let isHuman = (teamIdx = humanTeam)
 
-            if isHuman then
-                fillRect sb (tableX - 2.0f) (ry - 1.0f) (width - tableX * 2.0f + 4.0f) rowH (Color(30, 50, 80))
+        if isHuman then
+            fillRect b (tableX - 2.0f) (ry - 1.0f) (width - tableX * 2.0f + 4.0f) rowH (Color.rgb 30uy 50uy 80uy) LRink
 
-            let textColor = if isHuman then goalFlashColor else Color.White
-            drawText smallFont sb $"{rank + 1}." (Vector2(tableX, ry)) grayColor
-            drawText smallFont sb teamNames.[teamIdx] (Vector2(tableX + smallSize * 2.5f, ry)) textColor
+        let textColor = if isHuman then goalFlashColor else white
+        drawText b font smallSize tableX ry $"{rank + 1}." grayColor LTrail
+        drawText b font smallSize (tableX + smallSize * 2.5f) ry teamNames.[teamIdx] textColor LTrail
 
-            [| $"{stats.Wins}"
-               $"{stats.Losses}"
-               $"{stats.Draws}"
-               $"{stats.Points}"
-               $"{stats.GoalsFor}"
-               $"{stats.GoalsAgainst}" |]
-            |> Array.iteri (fun i v ->
-                drawText smallFont sb v (Vector2(tableX + colPositions.[i], ry)) Color.White))
+        [| $"{stats.Wins}"
+           $"{stats.Losses}"
+           $"{stats.Draws}"
+           $"{stats.Points}"
+           $"{stats.GoalsFor}"
+           $"{stats.GoalsAgainst}" |]
+        |> Array.iteri (fun i v -> drawText b font smallSize (tableX + colPositions.[i]) ry v white LTrail))
 
-        // Winner announcement
-        if isFinal && standings.Length > 0 then
-            let winnerIdx, winnerStats = standings.[0]
+    // Winner announcement
+    if isFinal && standings.Length > 0 then
+        let winnerIdx, winnerStats = standings.[0]
 
-            let winnerStr =
-                $"{teamNames.[winnerIdx]} WINS THE LEAGUE!  ({winnerStats.Points} pts)"
+        let winnerStr =
+            $"{teamNames.[winnerIdx]} WINS THE LEAGUE!  ({winnerStats.Points} pts)"
 
-            match getFont (max 14.0f (14.0f * scale)) with
-            | Some winFont ->
-                drawCentered sb winFont width (height * 0.88f) winnerStr goalFlashColor
-            | None -> ()
+        drawCentered b font (max 14.0f (14.0f * scale)) width (height * 0.88f) winnerStr goalFlashColor LTrail
 
-        let instrStr =
-            if isFinal then
-                "Press SPACE to return to menu"
-            else
-                "Press SPACE to continue"
+    let instrStr =
+        if isFinal then
+            "Press SPACE to return to menu"
+        else
+            "Press SPACE to continue"
 
-        drawCentered sb smallFont width (height * 0.94f) instrStr grayColor
-    | _ -> ()
+    drawCentered b font smallSize width (height * 0.94f) instrStr grayColor LTrail
 
 // ─── Menu Screen ──────────────────────────────────────────────────────
 
-let drawMenu (sb: SpriteBatch) width height selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer gamepadOn =
-    fillRect sb 0.0f 0.0f width height (Color(10, 10, 30))
+let drawMenu (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: float32) selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer gamepadOn =
+    fillRect b 0.0f 0.0f width height (Color.rgb 10uy 10uy 30uy) LBg
 
     let scale = min (width / OrigW) (height / OrigH)
     let struct (bigSize, medSize, smallSize) = mkFonts scale
+    let menuGray = Color.rgb 140uy 140uy 140uy
 
-    match getFont bigSize, getFont medSize, getFont smallSize with
-    | Some bigFont, Some medFont, Some smallFont ->
-        let menuGray = Color(140, 140, 140)
+    // Title + subtitle
+    drawCentered b font bigSize width (height * 0.06f) "THE FS HOCKEY LEAGUE" goalFlashColor LRink
 
-        // Title + subtitle
-        drawCentered sb bigFont width (height * 0.06f) "THE FS HOCKEY LEAGUE" goalFlashColor
+    let sub = "Tuomas Hietanen, 2026"
+    drawCentered b font smallSize width (height * 0.06f + bigSize * 1.4f) sub menuGray LRink
 
-        let sub = "Tuomas Hietanen, 2026"
-        drawCentered sb smallFont width (height * 0.06f + bigSize * 1.4f) sub menuGray
+    // Two-column team selection
+    let colW = width * 0.42f
+    let col1X = width * 0.04f
+    let col2X = width * 0.54f
+    let listY = height * 0.22f
 
-        // Two-column team selection
-        let colW = width * 0.42f
-        let col1X = width * 0.04f
-        let col2X = width * 0.54f
-        let listY = height * 0.22f
+    let drawColumn colX (headerText: string) (headerColor: Color) selectedIdx isActive =
+        drawText b font medSize colX listY headerText headerColor LTrail
 
-        let drawColumn colX (headerText: string) (headerColor: Color) selectedIdx isActive =
-            drawText medFont sb headerText (Vector2(colX, listY)) headerColor
+        if isActive then
+            let boxH = medSize * 1.3f + float32 NumTeams * smallSize * 1.6f + 6.0f
+            drawRect b (colX - 3.0f) (listY - 2.0f) colW boxH 1.5f headerColor LRink
 
-            if isActive then
-                let boxH = medSize * 1.3f + float32 NumTeams * smallSize * 1.6f + 6.0f
-                drawRect sb (colX - 3.0f) (listY - 2.0f) colW boxH 1.5f headerColor
+        for i in 0 .. NumTeams - 1 do
+            let ty = listY + medSize * 1.5f + float32 i * smallSize * 1.6f
+            let isSelected = (i = selectedIdx)
 
-            for i in 0 .. NumTeams - 1 do
-                let ty = listY + medSize * 1.5f + float32 i * smallSize * 1.6f
-                let isSelected = (i = selectedIdx)
+            if isSelected then
+                fillRect b colX (ty - 1.0f) (colW - 6.0f) (smallSize * 1.4f) (Color.rgb 40uy 60uy 100uy) LRink
 
-                if isSelected then
-                    fillRect sb colX (ty - 1.0f) (colW - 6.0f) (smallSize * 1.4f) (Color(40, 60, 100))
+            let color = if isSelected then goalFlashColor else white
+            let prefix = if isSelected then "> " else "  "
+            let label = $"{prefix}{teamNames.[i]}"
+            drawText b font smallSize (colX + 4.0f) ty label color LTrail
 
-                let color = if isSelected then goalFlashColor else Color.White
-                let prefix = if isSelected then "> " else "  "
-                let label = $"{prefix}{teamNames.[i]}"
-                drawText smallFont sb label (Vector2(colX + 4.0f, ty)) color
+            // Team skating speed, dimmed — a hint of how hard a CPU opponent
+            // is, reflecting the current fast-human/hard-mode settings
+            let struct (labelW, _) = measureText font smallSize label
+            let spd = displayedTeamSpeed fastHuman hardMode i
+            drawText b font smallSize (colX + 4.0f + labelW) ty $" (speed {spd})" (Color.rgb 105uy 105uy 125uy) LTrail
 
-                // Team skating speed, dimmed — a hint of how hard a CPU opponent
-                // is, reflecting the current fast-human/hard-mode settings
-                let labelW = smallFont.MeasureString(label).X
-                let spd = displayedTeamSpeed fastHuman hardMode i
-                drawText smallFont sb $" (speed {spd})" (Vector2(colX + 4.0f + labelW, ty)) (Color(105, 105, 125))
+    drawColumn col1X "TEAM 1 (LEFT)" team1Color selectedTeam1 (activeColumn = 0)
+    drawColumn col2X "TEAM 2 (RIGHT)" team2Color selectedTeam2 (activeColumn = 1)
 
-        drawColumn col1X "TEAM 1 (LEFT)" team1Color selectedTeam1 (activeColumn = 0)
-        drawColumn col2X "TEAM 2 (RIGHT)" team2Color selectedTeam2 (activeColumn = 1)
+    // Instructions
+    let fastStr = if fastHuman then "ON" else "OFF"
+    let hardStr = if hardMode then "ON" else "OFF"
+    let fiveStr = if fivePlayer then "6v6" else "3v3"
+    let padStr = if gamepadOn then "ON" else "OFF"
 
-        // Instructions
-        let fastStr = if fastHuman then "ON" else "OFF"
-        let hardStr = if hardMode then "ON" else "OFF"
-        let fiveStr = if fivePlayer then "6v6" else "3v3"
-        let padStr = if gamepadOn then "ON" else "OFF"
+    let instrLines =
+        [| "UP/DOWN = Select Team  |  TAB = Switch Column"
+           "ENTER = Start Game  |  L = Play League  |  P = Pause  |  ESC = Quit"
+           $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
+           $"G = Gamepad [{padStr}]  |  F11 = Toggle Fullscreen"
+           "Hold shoot key longer for harder shot, quick tap for a pass"
+           "Player 1: Arrow Keys + RShift/Enter, or Gamepad 1"
+           "Player 2: WASD + Space/Tab, or Gamepad 2"
+           "(Set team to HUMAN PLAYER for keyboard control)" |]
 
-        let instrLines =
-            [| "UP/DOWN = Select Team  |  TAB = Switch Column"
-               "ENTER = Start Game  |  L = Play League  |  P = Pause  |  ESC = Quit"
-               $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
-               $"G = Gamepad [{padStr}]  |  F11 = Toggle Fullscreen"
-               "Hold shoot key longer for harder shot, quick tap for a pass"
-               "Player 1: Arrow Keys + RShift/Enter, or Gamepad 1"
-               "Player 2: WASD + Space/Tab, or Gamepad 2"
-               "(Set team to HUMAN PLAYER for keyboard control)" |]
+    let baseY = height * 0.7f
 
-        let baseY = height * 0.7f
-
-        instrLines
-        |> Array.iteri (fun i line ->
-            drawCentered sb smallFont width (baseY + float32 i * smallSize * 1.3f) line menuGray)
-    | _ -> ()
+    instrLines
+    |> Array.iteri (fun i line ->
+        drawCentered b font smallSize width (baseY + float32 i * smallSize * 1.3f) line menuGray LTrail)
 
 // ─── Main Render ──────────────────────────────────────────────────────
 
-let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
-    let w = float32 width
-    let h = float32 height
+let renderFrame (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: float32) (height: float32) leagueMode =
+    let w = width
+    let h = height
 
     // The 320x200 layout is a CGA-style design with non-square pixels: on a
     // 4:3 monitor its pixel aspect ratio is 1.2. Preserve the rink's shape by
@@ -686,28 +657,15 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
     let sx = s * par
     let sy = s
 
-    fillRect sb 0.0f 0.0f w h bgColor
+    fillRect b 0.0f 0.0f w h bgColor LBg
 
     // HUD is anchored to the bottom edge; the rink is centered in the space
-    // above it (horizontally, and vertically on very wide windows). The rink
-    // content is drawn in its own batch translated by (offX, offY).
+    // above it (horizontally, and vertically on very wide windows).
     let hudH = HudHeight * sy
     let offX = (w - OrigW * sx) / 2.0f
     let offY = max 0.0f ((h - hudH - 2.0f - rinkGameH * sy) / 2.0f)
 
-    sb.End()
-
-    sb.Begin(
-        SpriteSortMode.Deferred,
-        BlendState.NonPremultiplied,
-        null,
-        null,
-        null,
-        null,
-        System.Nullable(Matrix.CreateTranslation(offX, offY, 0.0f))
-    )
-
-    drawRink sb sx sy team1Color team2Color
+    drawRink b sx sy offX offY team1Color team2Color
 
     // Ice trail marks (drawn on ice, under players and puck)
     for i in 0 .. gs.TrailMarkCount - 1 do
@@ -716,11 +674,9 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
         if mark.Life > 0<tick> then
             let alpha = int (float (int mark.Life) / float (int TrailMarkLifetime) * 180.0) + 40
             let alpha = byte (min 220 alpha)
-            let trailColor = Color(255uy, 255uy, 255uy, alpha)
-            let mx = gameX sx mark.X
-            let my = gameY sy mark.Y
-            let r = 1.2f * sx
-            fillEllipse sb mx my r r trailColor
+            let mx = offX + gameX sx mark.X
+            let my = offY + gameY sy mark.Y
+            fillCircle b mx my (1.2f * sx) (Color.create 255uy 255uy 255uy alpha) LTrail
 
     let ppt = gs.PlayersPerTeam
     let t2s = gs.Team2Start
@@ -729,15 +685,15 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
     let t1Helmet = if gs.Team1Idx = 0 then helmetGold else helmetBlack
     let t2Helmet = if gs.Team2Idx = 0 then helmetGold else helmetBlack
 
-    // Puck drawn UNDER players so skaters appear on top of it
-    drawPuck sb sx sy gs.Entities.[gs.PuckIdx] gs.PuckAnimFrame
+    // Puck on a lower layer than players, so skaters appear on top of it
+    drawPuck b sx sy offX offY gs.Entities.[gs.PuckIdx] gs.PuckAnimFrame
 
     // Team 1 players
     for i in 0 .. ppt - 1 do
         let isGoalie = gs.FivePlayerMode && i = 0
 
         drawRetroPlayer
-            sb
+            b
             sx
             sy
             offX
@@ -756,7 +712,7 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
         let isGoalie = gs.FivePlayerMode && i = 0
 
         drawRetroPlayer
-            sb
+            b
             sx
             sy
             offX
@@ -769,17 +725,13 @@ let renderFrame (sb: SpriteBatch) (gs: GameState) width height leagueMode =
             isGoalie
             (int gs.GameTick)
 
-    // Back to screen space for the HUD and overlays
-    sb.End()
-    sb.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied)
-
     // HUD (spans the full width, anchored to the bottom edge)
     let rinkBottom = h - hudH - 2.0f
-    drawHud sb gs sx sy rinkBottom w
+    drawHud b font gs sx sy rinkBottom w
 
     // Overlays
-    drawGoalFlash sb gs w h
-    drawPeriodFlash sb gs w h
+    drawGoalFlash b font gs w h
+    drawPeriodFlash b font gs w h
 
     if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then
-        drawGameOver sb gs w h leagueMode
+        drawGameOver b font gs w h leagueMode

@@ -1,8 +1,21 @@
 # The FS Hockey League
 
-A retro-style ice hockey game inspired by Solar Hockey (1990-1992). Written in F# with MonoGame (cross-platform 2D game framework).
+A retro-style ice hockey game inspired by Solar Hockey (1990-1992). Written in F# with the [Mibo game engine](https://github.com/AngelMunoz/Mibo) (Elmish/MVU, MonoGame DesktopGL backend).
 
-There is also available WinForms branch and FableWeb branch.
+This branch uses Mibo's Elmish architecture: the app flow is an immutable
+model-view-update loop, the 60 Hz simulation runs on Mibo's fixed timestep,
+keyboard input goes through Mibo's `InputMap` action mapping, the gamepad is
+a Mibo subscription (diffed on/off by the menu toggle), and the frame is
+described declaratively with the fluent 2D draw DSL on sorted render layers.
+
+The Elmish core (App.fs) references only `Mibo.Core`, so the entire game loop
+also runs in Mibo's headless runtime: `dotnet fsi test.fsx` plays through the
+major end-user scenarios with simulated input — menu navigation, human
+keyboard control, a scored goal with faceoff reset, gamepad stick/d-pad
+input, a two-player match, 6v6 + hard-mode options, pause, and a full league
+season to the champion screen — no window needed.
+
+There are also MonoGame, WinForms and FableWeb branches.
 You can try the Fable version online here: https://thorium.github.io/FsHockey/
 
 ## Requirements
@@ -12,9 +25,13 @@ You can try the Fable version online here: https://thorium.github.io/FsHockey/
 ## Build & Run
 
 ```
+dotnet tool restore
 dotnet build
 dotnet run
 ```
+
+(`dotnet tool restore` installs the MonoGame content builder, which bakes the
+bundled Roboto Mono font into a spritefont.)
 
 ## Controls
 
