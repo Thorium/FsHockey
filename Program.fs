@@ -153,9 +153,9 @@ let private screenshotRenderer (outDir: string) : IRenderer<Model> =
                 let w = gd.PresentationParameters.BackBufferWidth
                 let h = gd.PresentationParameters.BackBufferHeight
                 let data: Color[] = Array.zeroCreate (w * h)
-                gd.GetBackBufferData(data)
+                gd.GetBackBufferData data
                 use tex = new Texture2D(gd, w, h)
-                tex.SetData(data)
+                tex.SetData data
                 use fs = System.IO.File.Create(System.IO.Path.Combine(outDir, name + ".png"))
                 tex.SaveAsPng(fs, w, h)
             | None -> () }

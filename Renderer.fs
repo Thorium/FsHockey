@@ -129,7 +129,7 @@ let private drawText (b: RenderBuffer2D) (font: SpriteFont) (sizePx: float32) (x
 
 /// Measured (width, height) of text at the given pixel size
 let private measureText (font: SpriteFont) (sizePx: float32) (text: string) =
-    let s = font.MeasureString(text)
+    let s = font.MeasureString text
     let k = sizePx / BakedFontPx
     struct (s.X * k, s.Y * k)
 
