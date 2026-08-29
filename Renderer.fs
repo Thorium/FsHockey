@@ -192,7 +192,7 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
 
     use savedTransform = g.Transform
     g.TranslateTransform(px, py)
-    g.RotateTransform(angleDeg)
+    g.RotateTransform angleDeg
     let px = 0.0f
     let py = 0.0f
 
