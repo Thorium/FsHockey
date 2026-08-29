@@ -425,7 +425,7 @@ let checkWallsAndGoals (gs: GameState) idx =
         ent.VelY <- -(abs ent.VelY)
 
     // Clamp safety
-    if not isPuck || not scored then
+    if not (isPuck && scored) then
         ent.X <- clamp FieldLeft FieldRight ent.X
 
     ent.Y <- clamp FieldTop FieldBottom ent.Y
@@ -554,7 +554,7 @@ let private tryFindPassMate (gs: GameState) idx isTeam1 =
                         bestForward <- forward
                         best <- ei
 
-    if best >= 0 then Some best else None
+    if best >= 0 then ValueSome best else ValueNone
 
 /// Aim at a teammate (8-way, since the puck leaves along DirX/DirY) and pass.
 let private aiPassTo (gs: GameState) idx mateIdx =
@@ -623,7 +623,7 @@ let aiActivePlayer (gs: GameState) idx isTeam1 =
             ent.DirX <- goalDir
 
             ent.DirY <-
-                let r = gs.Rng.Next(100)
+                let r = gs.Rng.Next 100
                 if r < 20 then 1.0
                 elif r < 40 then -1.0
                 else 0.0
@@ -664,8 +664,8 @@ let aiActivePlayer (gs: GameState) idx isTeam1 =
             // Opponent right on us: pass if someone is open, otherwise
             // skate a bit backwards and sideways to find a better spot
             match tryFindPassMate gs idx isTeam1 with
-            | Some mateIdx -> aiPassTo gs idx mateIdx
-            | None ->
+            | ValueSome mateIdx -> aiPassTo gs idx mateIdx
+            | ValueNone ->
                 let backX = ent.X - goalDir * 20.0<px>
                 let sideY =
                     if opp.Y > ent.Y then ent.Y - 24.0<px> else ent.Y + 24.0<px>
@@ -690,8 +690,8 @@ let aiActivePlayer (gs: GameState) idx isTeam1 =
             // Blocker ahead but not on us yet: pass if a mate is open,
             // otherwise dodge laterally around the blocker, keeping the puck
             match tryFindPassMate gs idx isTeam1 with
-            | Some mateIdx -> aiPassTo gs idx mateIdx
-            | None ->
+            | ValueSome mateIdx -> aiPassTo gs idx mateIdx
+            | ValueNone ->
                 let sideY =
                     if opp.Y > ent.Y then ent.Y - 28.0<px> else ent.Y + 28.0<px>
 

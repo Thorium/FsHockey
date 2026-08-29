@@ -136,19 +136,19 @@ let inline matchOver (gs: GameState) =
 /// Apply player 1 directional + fire keys (Arrow keys + RShift/Enter)
 let private mapPlayer1Keys (gs: GameState) (ks: KeyboardState) =
     gs.Input1 <-
-        { Left = ks.IsKeyDown(Keys.Left)
-          Right = ks.IsKeyDown(Keys.Right)
-          Up = ks.IsKeyDown(Keys.Up)
-          Down = ks.IsKeyDown(Keys.Down)
+        { Left = ks.IsKeyDown Keys.Left
+          Right = ks.IsKeyDown Keys.Right
+          Up = ks.IsKeyDown Keys.Up
+          Down = ks.IsKeyDown Keys.Down
           Fire = ks.IsKeyDown(Keys.RightShift) || ks.IsKeyDown(Keys.Enter) }
 
 /// Apply player 2 directional + fire keys (WASD + Space/Tab)
 let private mapPlayer2Keys (gs: GameState) (ks: KeyboardState) =
     gs.Input2 <-
-        { Left = ks.IsKeyDown(Keys.A)
-          Right = ks.IsKeyDown(Keys.D)
-          Up = ks.IsKeyDown(Keys.W)
-          Down = ks.IsKeyDown(Keys.S)
+        { Left = ks.IsKeyDown Keys.A
+          Right = ks.IsKeyDown Keys.D
+          Up = ks.IsKeyDown Keys.W
+          Down = ks.IsKeyDown Keys.S
           Fire = ks.IsKeyDown(Keys.Space) || ks.IsKeyDown(Keys.Tab) }
 
 // ─── Gamepad input ────────────────────────────────────────────────────
@@ -261,7 +261,7 @@ type HockeyGame() as this =
                 app.ActiveColumn <- 1 - app.ActiveColumn
 
             if this.IsKeyPressed(Keys.Up, ks) || this.IsKeyPressed(Keys.Down, ks) then
-                let delta = if ks.IsKeyDown(Keys.Up) then -1 else 1
+                let delta = if ks.IsKeyDown Keys.Up then -1 else 1
 
                 if app.ActiveColumn = 0 then
                     app.SelectedTeam1 <- (app.SelectedTeam1 + delta + NumTeams) % NumTeams
@@ -364,10 +364,10 @@ type HockeyGame() as this =
                 app.Mode <- Menu
 
         prevKeyState <- ks
-        base.Update(gameTime)
+        base.Update gameTime
 
     override _.Draw(gameTime) =
-        graphics.GraphicsDevice.Clear(Color.Black)
+        graphics.GraphicsDevice.Clear Color.Black
 
         let w = graphics.GraphicsDevice.Viewport.Width
         let h = graphics.GraphicsDevice.Viewport.Height
@@ -428,7 +428,7 @@ type HockeyGame() as this =
                 drawLeagueStandings spriteBatch fw fh (getSortedStandings league) true league.HumanTeam)
 
         spriteBatch.End()
-        base.Draw(gameTime)
+        base.Draw gameTime
 
 // ─── Entry Point ──────────────────────────────────────────────────────
 

@@ -97,13 +97,13 @@ let initFonts (_device: GraphicsDevice) =
         eprintfn "  Searched system fonts and bundled fallback (RobotoMono-Regular.ttf)."
 
 let disposeFonts () =
-    if fontSystem <> null then
+    if not (isNull fontSystem) then
         fontSystem.Dispose()
         fontSystem <- null
 
 let private getFont (size: float32) =
-    if fontSystem <> null && fontLoaded then
-        Some(fontSystem.GetFont(size))
+    if (not (isNull fontSystem)) && fontLoaded then
+        Some(fontSystem.GetFont size)
     else
         None
 
@@ -117,7 +117,7 @@ let inline gameY (sy: float32) (y: float<px>) = float32 (stripPx y) * sy
 
 /// Draw a string centered horizontally at the given Y position
 let private drawCentered (sb: SpriteBatch) (font: SpriteFontBase) width y (text: string) (color: Color) =
-    let sz = font.MeasureString(text)
+    let sz = font.MeasureString text
     font.DrawText(sb, text, Vector2((width - sz.X) / 2.0f, y), color) |> ignore
 
 /// Draw text at a position (wraps DrawText with ignore)
@@ -375,10 +375,10 @@ let drawHud (sb: SpriteBatch) (gs: GameState) sx sy rinkBottom width =
 
         // Team 2 name + score (right)
         let t2Name = teamNames.[gs.Team2Idx]
-        let t2Size = smallFont.MeasureString(t2Name)
+        let t2Size = smallFont.MeasureString t2Name
         drawText smallFont sb t2Name (Vector2(width - t2Size.X - 10.0f * sx, hudY + 4.0f)) team2Color
         let s2Str = $"{gs.Team2Score}"
-        let s2Size = font.MeasureString(s2Str)
+        let s2Size = font.MeasureString s2Str
         drawText font sb s2Str (Vector2(width - s2Size.X - 10.0f * sx, hudY + 4.0f + fontSize * 1.1f)) team2Color
 
         // Clock (center) — counts DOWN to the period end
@@ -418,7 +418,7 @@ let drawPeriodFlash (sb: SpriteBatch) (gs: GameState) (width: float32) (height: 
         match getFont fontSize with
         | Some font ->
             let banner = $"PERIOD {gs.CurrentPeriod + 1}"
-            let strSize = font.MeasureString(banner)
+            let strSize = font.MeasureString banner
             let tx = (width - strSize.X) / 2.0f
             let ty = (height - strSize.Y) / 2.0f - 20.0f
             drawText font sb banner (Vector2(tx + 2.0f, ty + 2.0f)) (Color(0, 0, 0, 180))
@@ -445,7 +445,7 @@ let drawGoalFlash (sb: SpriteBatch) (gs: GameState) width height =
                 | NoGoal -> ""
 
             let goalStr = $"GOAL! {scorerName}"
-            let strSize = font.MeasureString(goalStr)
+            let strSize = font.MeasureString goalStr
             let tx = (width - strSize.X) / 2.0f
             let ty = (height - strSize.Y) / 2.0f - 20.0f
 

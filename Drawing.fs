@@ -14,7 +14,7 @@ let mutable private circleTexture: Texture2D = null
 /// Initialize the shared pixel and circle textures. Call once at LoadContent.
 let initTextures (device: GraphicsDevice) =
     pixelTexture <- new Texture2D(device, 1, 1)
-    pixelTexture.SetData([| Color.White |])
+    pixelTexture.SetData [| Color.White |]
 
     // Pre-generate a circle texture (diameter 64 px) for ellipse drawing
     let diam = 64
@@ -30,15 +30,15 @@ let initTextures (device: GraphicsDevice) =
                 data.[y * diam + x] <- Color.White
 
     circleTexture <- new Texture2D(device, diam, diam)
-    circleTexture.SetData(data)
+    circleTexture.SetData data
 
 /// Dispose textures. Call at UnloadContent.
 let disposeTextures () =
-    if pixelTexture <> null then
+    if not (isNull pixelTexture) then
         pixelTexture.Dispose()
         pixelTexture <- null
 
-    if circleTexture <> null then
+    if not (isNull circleTexture) then
         circleTexture.Dispose()
         circleTexture <- null
 
