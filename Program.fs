@@ -210,6 +210,7 @@ let private mapPlayer2Keys (gs: GameState) =
 // ─── Gamepad input (standard mapping) ────────────────────────────────────
 // Left stick / d-pad to skate, A / B / right trigger to shoot.
 
+[<Literal>]
 let private GamepadDeadzone = 0.35
 
 /// Read pad `idx` as an Input snapshot (Input.none when not connected).
