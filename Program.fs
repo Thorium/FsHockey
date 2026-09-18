@@ -155,6 +155,7 @@ let private mapPlayer2Keys (gs: GameState) (ks: KeyboardState) =
 // Left stick / d-pad to skate, A / B / right trigger to shoot.
 // Pad 1 drives player 1, pad 2 drives player 2, merged with the keyboard.
 
+[<Literal>]
 let private GamepadDeadzone = 0.35f
 
 /// Read a pad as an Input snapshot (Input.none when not connected).
