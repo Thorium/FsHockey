@@ -191,6 +191,7 @@ module private XInput =
 let mutable private xinputAvailable = true
 
 /// ~0.35 of the full int16 stick range (matches the browser build's deadzone)
+[<Literal>]
 let private GamepadDeadzone = 11469
 
 /// Read pad `idx` as an Input snapshot (Input.none when not connected).

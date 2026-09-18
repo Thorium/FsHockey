@@ -35,7 +35,8 @@ let puckHighlight = Color.FromArgb(60, 60, 60)
 let hudBg = Color.FromArgb(20, 20, 40)
 let hudText = Color.FromArgb(220, 220, 220)
 let goalFlashColor = Color.FromArgb(255, 255, 80)
-let activeMarker = Color.FromArgb(90, 255, 120)   // green caret over the controlled player
+/// green caret over the controlled player
+let activeMarker = Color.FromArgb(90, 255, 120)
 let stickBrown = Color.FromArgb(139, 90, 43)
 let stickTape = Color.FromArgb(240, 240, 240)
 let helmetBlack = Color.FromArgb(30, 30, 30)
@@ -186,7 +187,7 @@ let drawRetroPlayer (g: Graphics) sx sy (ent: Entity) jerseyColor helmetColor is
     // ─── Rotation: face direction of DirX/DirY ───
     let angleDeg =
         if ent.DirX <> 0.0 || ent.DirY <> 0.0 then
-            float32 (System.Math.Atan2(float ent.DirX, -(float ent.DirY))) * (180.0f / float32 System.Math.PI)
+            float32 (Math.Atan2(float ent.DirX, -(float ent.DirY))) * (180.0f / float32 Math.PI)
         else
             0.0f
 
@@ -334,7 +335,7 @@ let drawPuck (g: Graphics) sx sy (puck: Entity) (animFrame: int) =
     g.FillEllipse(solidBrush puckColor, px - r, py - r, r * 2.0f, r * 2.0f)
 
     // Spinning highlight: orbits the puck center once per animation cycle
-    let phase = float32 animFrame / float32 (PuckAnimFrames * 2) * (2.0f * float32 System.Math.PI)
+    let phase = float32 animFrame / float32 (PuckAnimFrames * 2) * (2.0f * float32 Math.PI)
     let hlBrush = solidBrush puckHighlight
     let hr = r * 0.4f
     let orbit = r * 0.35f
