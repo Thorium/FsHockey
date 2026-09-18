@@ -95,6 +95,7 @@ module PadState =
         let held = (held, delta.Buttons.Released) ||> Array.fold (fun s b -> Set.remove b s)
         { Analog = delta.Analog; Held = held }
 
+[<Literal>]
 let private GamepadDeadzone = 0.35f
 
 /// Read a pad state as an Input snapshot (left stick / d-pad to skate,

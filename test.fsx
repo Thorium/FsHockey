@@ -229,9 +229,9 @@ let frame = TimeSpan.FromSeconds(1.0 / 60.0)
 /// then a release delta (mirrors what InputMapper dispatches).
 let pressOn (r: HeadlessRunner<Model, Msg>) (a: HockeyAction) =
     r.Dispatch(InputChanged { ActionState.empty with Started = Set.singleton a; Held = Set.singleton a })
-    r.Step(frame)
+    r.Step frame
     r.Dispatch(InputChanged { ActionState.empty with Released = Set.singleton a })
-    r.Step(frame)
+    r.Step frame
 
 /// Hold a set of actions (movement keys): Held only, no edge actions.
 let holdOn (r: HeadlessRunner<Model, Msg>) (actions: HockeyAction list) =
@@ -342,7 +342,7 @@ let startY18 = float g18.Entities.[active18].Y
 holdOn r2 [ P1Right; P1Down ]
 r2.StepN(40, frame)
 releaseOn r2
-r2.Step(frame)
+r2.Step frame
 check "held keys skate the active player right" (float g18.Entities.[active18].X > startX18 + 1.0)
 check "held keys skate the active player down" (float g18.Entities.[active18].Y > startY18 + 1.0)
 
@@ -409,7 +409,7 @@ check "d-pad up skates the player up" (float g20.Entities.[active20b].Y < startY
 
 // release everything
 r2.Dispatch(PadChanged(padDelta 0.0f 0.0f [||] [| GamepadButtonCode.DPadUp |]))
-r2.Step(frame)
+r2.Step frame
 
 press2 Back
 check "back to the menu" (r2.Model.Mode = Menu)
@@ -432,7 +432,7 @@ let startX21 = float g21.Entities.[active21].X
 holdOn r2 [ P2Left ]
 r2.StepN(40, frame)
 releaseOn r2
-r2.Step(frame)
+r2.Step frame
 check "P2 held key skates team-2 player left" (float g21.Entities.[active21].X < startX21 - 1.0)
 
 press2 Back

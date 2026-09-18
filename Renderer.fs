@@ -49,7 +49,8 @@ let puckHighlight = Color.rgb 60uy 60uy 60uy
 let hudBg = Color.rgb 20uy 20uy 40uy
 let hudText = Color.rgb 220uy 220uy 220uy
 let goalFlashColor = Color.rgb 255uy 255uy 80uy
-let activeMarkerColor = Color.rgb 90uy 255uy 120uy // green caret over the controlled player
+/// green caret over the controlled player
+let activeMarkerColor = Color.rgb 90uy 255uy 120uy
 let stickBrown = Color.rgb 139uy 90uy 43uy
 let stickTape = Color.rgb 240uy 240uy 240uy
 let helmetBlack = Color.rgb 30uy 30uy 30uy
