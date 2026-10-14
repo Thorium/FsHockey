@@ -54,3 +54,355 @@ html, body {
 .github-link:hover {
     color: #90c0ff;
 }
+
+/* ─── Touch layout (body.touch, set by Program.fs on coarse-pointer devices
+   or ?touch=1): full-bleed canvas, a tap menu, a floating skate stick + SHOOT
+   per human team during a match, and a rotate prompt in portrait. Program.fs
+   keeps the mode classes on body in sync: mode-menu / mode-play,
+   show-continue (result screens), paused, two-humans. ─────────────────── */
+
+#touch-menu, #touch-controls, #rotate-hint {
+    display: none;
+}
+
+body.touch {
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body.touch #root {
+    height: 100vh;
+    height: 100dvh;
+    padding: 0;
+    gap: 0;
+}
+
+body.touch .hint, body.touch .github-link {
+    display: none;
+}
+
+body.touch #screen {
+    border: none;
+    border-radius: 0;
+}
+
+body.touch button {
+    font-family: inherit;
+    touch-action: none;
+}
+
+/* Tap menu */
+body.touch.mode-menu #touch-menu {
+    display: flex;
+}
+
+#touch-menu {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 16px 14px;
+    width: min(480px, calc(100vw - 32px));
+    box-sizing: border-box;
+}
+
+#touch-menu h1 {
+    margin: 0 0 4px;
+    font-size: 20px;
+    color: rgb(255, 255, 80);
+    text-align: center;
+}
+
+#touch-menu button {
+    min-width: 44px;
+    min-height: 40px;
+    font-size: 15px;
+    color: #fff;
+    background: #1a1a30;
+    border: 1px solid #3a3a58;
+    border-radius: 6px;
+}
+
+#touch-menu button:active {
+    background: #2a3a58;
+}
+
+.tm-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+}
+
+.tm-label {
+    flex: 0 0 4.5em;
+    color: #c8c8d0;
+}
+
+.tm-value {
+    flex: 1 1 auto;
+    text-align: center;
+    color: rgb(255, 255, 80);
+}
+
+.tm-toggles button, .tm-starts button {
+    flex: 1 1 0;
+}
+
+#touch-menu .tm-toggle {
+    color: #8c8ca0;
+}
+
+#touch-menu .tm-toggle.on {
+    color: #90c0ff;
+    border-color: #90c0ff;
+}
+
+#touch-menu .tm-start {
+    min-height: 48px;
+    font-size: 18px;
+    font-weight: bold;
+    color: #0a0a12;
+    background: #90c0ff;
+    border-color: #90c0ff;
+}
+
+/* Match controls */
+body.touch:not(.mode-menu) #touch-controls {
+    display: block;
+}
+
+#touch-controls {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+}
+
+#touch-controls button, .stick-zone {
+    pointer-events: auto;
+}
+
+.tc {
+    position: absolute;
+    color: #fff;
+    font-size: 13px;
+    font-weight: bold;
+    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-radius: 50%;
+}
+
+.tc.down {
+    background: rgba(144, 192, 255, 0.5);
+    border-color: #90c0ff;
+}
+
+.tc-top {
+    position: absolute;
+    left: calc(12px + env(safe-area-inset-left));
+    top: 10px;
+    display: flex;
+    gap: 8px;
+}
+
+.tc-top .tc {
+    position: static;
+    width: 68px;
+    height: 36px;
+    font-size: 12px;
+    border-radius: 8px;
+}
+
+body.paused #tc-pause {
+    color: rgb(255, 255, 80);
+    border-color: rgb(255, 255, 80);
+}
+
+.tc-continue {
+    display: none;
+    left: 50%;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    width: 200px;
+    height: 52px;
+    font-size: 18px;
+    border-radius: 10px;
+    background: rgba(144, 192, 255, 0.85);
+    color: #0a0a12;
+}
+
+body.show-continue .tc-continue {
+    display: block;
+}
+
+/* Stick and SHOOT only while a match is on, PAUSE likewise */
+.stick-zone, .stick-base, .tc-shoot, #tc-pause {
+    display: none;
+}
+
+body.mode-play:not(.show-continue) #stick-zone-1,
+body.mode-play:not(.show-continue) #stick-base-1,
+body.mode-play:not(.show-continue) #tc-shoot-1,
+body.mode-play.two-humans:not(.show-continue) #stick-zone-2,
+body.mode-play.two-humans:not(.show-continue) #stick-base-2,
+body.mode-play.two-humans:not(.show-continue) #tc-shoot-2 {
+    display: block;
+}
+
+body.mode-play #tc-pause {
+    display: block;
+}
+
+/* The stick's resting spot and SHOOT sit in the HUD strip's bottom corners
+   (--hud-h is set by Program.fs; the HUD texts are inset to make room). A
+   touch anywhere in the stick zone moves the stick under the finger. */
+.stick-zone {
+    position: absolute;
+    top: 56px;
+    bottom: 0;
+}
+
+#stick-zone-1 {
+    left: 0;
+    width: 55%;
+}
+
+.stick-base {
+    position: absolute;
+    bottom: calc(max(4px, (var(--hud-h, 100px) - 100px) / 2) + env(safe-area-inset-bottom));
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.06);
+    pointer-events: none;
+}
+
+#stick-base-1 {
+    left: calc(12px + env(safe-area-inset-left));
+}
+
+/* While a finger steers, the base sits where it touched down */
+.stick-base.active {
+    margin: -50px 0 0 -50px;
+    bottom: auto;
+    right: auto;
+}
+
+.stick-knob {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 44px;
+    height: 44px;
+    margin: -22px 0 0 -22px;
+    border-radius: 50%;
+    background: rgba(144, 192, 255, 0.45);
+}
+
+.tc-shoot {
+    bottom: calc(max(4px, (var(--hud-h, 96px) - 96px) / 2) + env(safe-area-inset-bottom));
+    width: 96px;
+    height: 96px;
+    font-size: 15px;
+}
+
+#tc-shoot-1 {
+    right: calc(12px + env(safe-area-inset-right));
+}
+
+/* Two humans: each player owns one side — stick in their bottom corner,
+   SHOOT in their top corner, above the goal */
+body.two-humans #stick-zone-1 {
+    width: 45%;
+}
+
+#stick-zone-2 {
+    right: 0;
+    width: 45%;
+}
+
+#stick-base-2 {
+    right: calc(12px + env(safe-area-inset-right));
+}
+
+body.two-humans .tc-shoot {
+    top: 10px;
+    bottom: auto;
+    width: 84px;
+    height: 84px;
+}
+
+/* ...which frees the top-left corner by moving PAUSE / MENU to the middle */
+body.two-humans .tc-top {
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+body.two-humans #tc-shoot-1 {
+    right: auto;
+    left: calc(12px + env(safe-area-inset-left));
+}
+
+#tc-shoot-2 {
+    right: calc(12px + env(safe-area-inset-right));
+}
+
+/* Rims in the controlled team's colour (set per match by Program.fs) */
+.rim-team1 {
+    border-color: rgba(220, 60, 60, 0.8) !important;
+}
+
+.rim-team2 {
+    border-color: rgba(60, 100, 220, 0.9) !important;
+}
+
+/* Portrait: ask for landscape */
+@media (orientation: portrait) {
+    body.touch #rotate-hint {
+        display: flex;
+    }
+}
+
+#rotate-hint {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    text-align: center;
+    font-size: 20px;
+    color: #fff;
+    background: #0a0a12;
+}
+
+/* A match running when the device turned is auto-paused (Program.fs) */
+.rotate-paused {
+    display: none;
+    font-size: 16px;
+    color: rgb(255, 255, 80);
+}
+
+body.mode-play.paused .rotate-paused {
+    display: block;
+}
+
+/* CPU vs CPU: nothing to steer */
+body.no-humans.mode-play:not(.show-continue) #stick-zone-1,
+body.no-humans.mode-play:not(.show-continue) #stick-base-1,
+body.no-humans.mode-play:not(.show-continue) #tc-shoot-1 {
+    display: none;
+}

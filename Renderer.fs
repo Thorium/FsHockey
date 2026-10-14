@@ -333,7 +333,9 @@ let drawPuck (ctx: obj) sx sy (puck: Entity) (animFrame: int) =
 
 // ─── Draw HUD ─────────────────────────────────────────────────────────
 
-let drawHud (ctx: obj) (gs: GameState) sx sy rinkBottom width =
+/// `edgeInset` keeps the team names and scores that far in from the left and
+/// right edges (the touch layout puts its stick and SHOOT button there).
+let drawHud (ctx: obj) (gs: GameState) sx sy rinkBottom width edgeInset =
     let hudY = rinkBottom + 2.0
     let hudH = HudHeight * sy
 
@@ -344,16 +346,16 @@ let drawHud (ctx: obj) (gs: GameState) sx sy rinkBottom width =
     let smallSize = fontSize * 0.75
 
     // Team 1 name + score (left)
-    drawText ctx smallSize teamNames.[gs.Team1Idx] (10.0 * sx) (hudY + 4.0) team1Color
-    drawText ctx fontSize $"{gs.Team1Score}" (10.0 * sx) (hudY + 4.0 + fontSize * 1.1) team1Color
+    drawText ctx smallSize teamNames.[gs.Team1Idx] (edgeInset + 10.0 * sx) (hudY + 4.0) team1Color
+    drawText ctx fontSize $"{gs.Team1Score}" (edgeInset + 10.0 * sx) (hudY + 4.0 + fontSize * 1.1) team1Color
 
     // Team 2 name + score (right)
     let t2Name = teamNames.[gs.Team2Idx]
     let t2W = measureWidth ctx smallSize t2Name
-    drawText ctx smallSize t2Name (width - t2W - 10.0 * sx) (hudY + 4.0) team2Color
+    drawText ctx smallSize t2Name (width - t2W - edgeInset - 10.0 * sx) (hudY + 4.0) team2Color
     let s2Str = $"{gs.Team2Score}"
     let s2W = measureWidth ctx fontSize s2Str
-    drawText ctx fontSize s2Str (width - s2W - 10.0 * sx) (hudY + 4.0 + fontSize * 1.1) team2Color
+    drawText ctx fontSize s2Str (width - s2W - edgeInset - 10.0 * sx) (hudY + 4.0 + fontSize * 1.1) team2Color
 
     // Clock (center) — counts DOWN to the period end. Pad the seconds
     // manually — Fable does not support ":D2" in interpolated strings.
@@ -545,6 +547,10 @@ let drawLeagueStandings (ctx: obj) width height (standings: (int * TeamStats) ar
 
 // ─── Menu Screen ──────────────────────────────────────────────────────
 
+/// Plain menu background for the touch layout, whose menu is an HTML overlay.
+let drawMenuBackdrop (ctx: obj) width height =
+    fillRect ctx 0.0 0.0 width height (Color(10, 10, 30))
+
 let drawMenu (ctx: obj) width height selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer gamepadOn =
     fillRect ctx 0.0 0.0 width height (Color(10, 10, 30))
 
@@ -617,18 +623,27 @@ let drawMenu (ctx: obj) width height selectedTeam1 selectedTeam2 activeColumn fa
 
 // ─── Main Render ──────────────────────────────────────────────────────
 
-let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) leagueMode =
+// The 320x200 layout is a CGA-style design with non-square pixels: on a
+// 4:3 monitor its pixel aspect ratio is 1.2. Preserve the rink's shape by
+// using one uniform content scale `s` (sx = 1.2 * s, sy = s), sized so the
+// rink plus the HUD fill as much of the canvas as possible.
+let private pixelAspect = 1.2
+let private rinkGameH = stripPx FieldBottom + 4.0
+
+let private contentScale (w: float) (h: float) =
+    min (w / (OrigW * pixelAspect)) ((h - 2.0) / (rinkGameH + HudHeight))
+
+/// Height of the HUD strip at the bottom of a `width` x `height` canvas.
+let hudHeight (width: float) (height: float) = HudHeight * contentScale width height
+
+/// `hudInset` is passed to drawHud: how far the team names and scores stay in
+/// from the side edges.
+let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) leagueMode hudInset =
     let w = width
     let h = height
 
-    // The 320x200 layout is a CGA-style design with non-square pixels: on a
-    // 4:3 monitor its pixel aspect ratio is 1.2. Preserve the rink's shape by
-    // using one uniform content scale `s` (sx = 1.2 * s, sy = s), sized so the
-    // rink plus the HUD fill as much of the canvas as possible.
-    let rinkGameH = stripPx FieldBottom + 4.0
-    let contentGameH = rinkGameH + HudHeight
-    let par = 1.2
-    let s = min (w / (OrigW * par)) ((h - 2.0) / contentGameH)
+    let par = pixelAspect
+    let s = contentScale w h
     let sx = s * par
     let sy = s
 
@@ -703,7 +718,7 @@ let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) league
 
     // HUD (drawn in canvas space, spanning the full width at the bottom edge)
     let rinkBottom = h - hudH - 2.0
-    drawHud ctx gs sx sy rinkBottom w
+    drawHud ctx gs sx sy rinkBottom w hudInset
 
     // Overlays
     drawGoalFlash ctx gs w h

@@ -8,6 +8,7 @@
 ///   Player 2: WASD + Space/Tab to shoot
 ///   Menu: UP/DOWN select team, TAB switch column, ENTER start, L league
 ///   F = fast human, H = hard mode, 5 = 3v3/6v6, F11 = fullscreen
+///   Touch devices: tap menu, floating stick + SHOOT per human team
 module HockeyDemo.Program
 
 open Fable.Core
@@ -238,10 +239,42 @@ let private mergeInput (a: Input) (b: Input) : Input =
       Down = a.Down || b.Down
       Fire = a.Fire || b.Fire }
 
+/// Register the offline service worker (public/sw.js) for the installable app.
+/// Production builds only: Vite replaces import.meta.env.PROD (and BASE_URL,
+/// the GitHub Pages sub-path), and a worker caching dev-server modules would
+/// serve stale code during development.
+[<Emit("(import.meta.env.PROD && 'serviceWorker' in navigator) ? navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js').catch(function(){}) : void 0")>]
+let private registerServiceWorker () : unit = jsNative
+[<Emit("window.matchMedia && window.matchMedia('(pointer: coarse)').matches")>]
+let private coarsePointer () : bool = jsNative
+[<Emit("new URLSearchParams(window.location.search).get($0)")>]
+let private queryParam (name: string) : string = jsNative
+
 // ─── State ───────────────────────────────────────────────────────────────
 
 let private canvas = getEl "screen"
 let private ctx = get2dCtx canvas
+
+/// Touch layout: a tap menu, a floating skate stick + SHOOT button per human
+/// team, CONTINUE on result screens. On for coarse-pointer (phone/tablet)
+/// devices; `?touch=1` / `?touch=0` forces it either way.
+let private touchMode =
+    match queryParam "touch" with
+    | "1" -> true
+    | "0" -> false
+    | _ -> coarsePointer ()
+
+/// Touch layout: the stick and SHOOT button sit in the HUD's bottom corners,
+/// so the team names and scores move this far (CSS px) in from the edges.
+let private hudInset = if touchMode then 120.0 else 0.0
+
+[<Emit("document.body.style.setProperty($0, $1)")>]
+let private setCssVar (name: string) (value: string) : unit = jsNative
+
+/// Portrait orientation, when the touch layout covers the game with the
+/// "turn your device sideways" message.
+[<Emit("window.matchMedia('(orientation: portrait)').matches")>]
+let private isPortrait () : bool = jsNative
 
 /// Canvas size in CSS pixels. The backing store is scaled by devicePixelRatio
 /// for crisp rendering on HiDPI screens, with a matching context transform so
@@ -262,6 +295,8 @@ let private resizeCanvas () =
         setCanvasW canvas (floor (cw * dpr))
         setCanvasH canvas (floor (ch * dpr))
         setCtxScale ctx dpr
+        // The touch controls centre themselves in the HUD strip
+        if touchMode then setCssVar "--hud-h" $"{hudHeight cw ch}px"
 
 let private app = createAppState ()
 let private gs = app.GameState
@@ -377,11 +412,12 @@ let private render () =
     let fh = viewH
 
     match app.Mode with
+    | Menu when touchMode -> drawMenuBackdrop ctx fw fh
     | Menu ->
         drawMenu ctx fw fh app.SelectedTeam1 app.SelectedTeam2 app.ActiveColumn app.FastHuman app.HardMode app.FivePlayerMode app.GamepadEnabled
 
     | Playing ->
-        renderFrame ctx gs viewW viewH false
+        renderFrame ctx gs viewW viewH false hudInset
         if app.Paused then drawPauseOverlay ctx viewW viewH
 
     | LeagueMatchup ->
@@ -400,7 +436,7 @@ let private render () =
         | None -> ()
 
     | LeaguePlaying ->
-        renderFrame ctx gs viewW viewH true
+        renderFrame ctx gs viewW viewH true hudInset
         if app.Paused then drawPauseOverlay ctx viewW viewH
 
     | LeagueStandings ->
@@ -440,13 +476,288 @@ let mutable private acc = 0.0
 /// resizing the backing store wipes the canvas).
 let mutable private needsRender = true
 
+// ─── Touch controls ─────────────────────────────────────────────────────────
+// The touch layout drives the game through the same key set as the keyboard.
+// A stick holds the arrow (or WASD) keys for its direction, SHOOT holds the
+// fire key (so a long press is still a hard shot), and taps on PAUSE / MENU /
+// CONTINUE pulse a key for exactly one update — `pressed` is edge-triggered,
+// so a pulse reads as one key press. Menu choices change the app state
+// directly.
+
+[<Emit("document.body")>]
+let private body () : obj = jsNative
+[<Emit("$0.classList.toggle($1, $2)")>]
+let private setClass (el: obj) (cls: string) (on: bool) : unit = jsNative
+[<Emit("$0.textContent = $1")>]
+let private setText (el: obj) (s: string) : unit = jsNative
+[<Emit("($0 && $0.closest) ? $0.closest($1) : null")>]
+let private closest (el: obj) (selector: string) : obj = jsNative
+[<Emit("$0.getAttribute($1) || ''")>]
+let private attr (el: obj) (name: string) : string = jsNative
+[<Emit("$0.setAttribute($1, $2)")>]
+let private setAttr (el: obj) (name: string) (value: string) : unit = jsNative
+[<Emit("$0.querySelector($1)")>]
+let private query (el: obj) (selector: string) : obj = jsNative
+[<Emit("$0.target")>]
+let private evTarget (e: obj) : obj = jsNative
+[<Emit("document.elementFromPoint($0, $1)")>]
+let private elementAt (x: float) (y: float) : obj = jsNative
+[<Emit("$0 === $1")>]
+let private sameEl (a: obj) (b: obj) : bool = jsNative
+[<Emit("$0.pointerId")>]
+let private pointerId (e: obj) : int = jsNative
+[<Emit("$0.clientX")>]
+let private clientX (e: obj) : float = jsNative
+[<Emit("$0.clientY")>]
+let private clientY (e: obj) : float = jsNative
+[<Emit("($0.style.left = $1, $0.style.top = $2)")>]
+let private setPos (el: obj) (left: string) (top: string) : unit = jsNative
+[<Emit("$0.style.transform = $1")>]
+let private setTransform (el: obj) (t: string) : unit = jsNative
+[<Emit("document.activeElement && document.activeElement.blur && document.activeElement.blur()")>]
+let private blurActive () : unit = jsNative
+/// Fullscreen + landscape lock where the browser allows it (Android); a no-op
+/// elsewhere (iOS Safari has neither for pages). Must run inside a tap handler.
+/// Never throws: older browsers return no promise from requestFullscreen.
+[<Emit("(function(){ try { var d = document.documentElement; if (!document.fullscreenElement && d.requestFullscreen) { Promise.resolve(d.requestFullscreen()).then(function(){ if (screen.orientation && screen.orientation.lock) return screen.orientation.lock('landscape'); }).catch(function(){}); } } catch (e) {} })()")>]
+let private enterFullscreenLandscape () : unit = jsNative
+
+/// Keys tapped since the last update; released again right after it.
+let private pulses = System.Collections.Generic.List<string>()
+
+let private pulseKey (code: string) =
+    keys.Add code |> ignore
+    pulses.Add code
+
+let private releasePulses () =
+    for k in pulses do
+        keys.Remove k |> ignore
+    pulses.Clear()
+
+// SHOOT buttons: finger → data-key button it is holding.
+let private touchHeld = System.Collections.Generic.Dictionary<int, obj>()
+
+/// Release `el`'s key and highlight unless another finger still holds it.
+let private releaseButton (el: obj) =
+    if not (touchHeld.Values |> Seq.exists (sameEl el)) then
+        keys.Remove(attr el "data-key") |> ignore
+        setClass el "down" false
+
+/// Point finger `id` at button `el` (null = none), swapping held keys.
+let private holdButton (id: int) (el: obj) =
+    let prev = match touchHeld.TryGetValue id with | true, p -> p | _ -> null
+    if not (sameEl prev el) then
+        if not (isNull prev) then
+            touchHeld.Remove id |> ignore
+            releaseButton prev
+        if not (isNull el) then
+            touchHeld[id] <- el
+            setClass el "down" true
+            keys.Add(attr el "data-key") |> ignore
+
+/// Stick travel (CSS px) before it counts as a direction.
+[<Literal>]
+let private StickDeadzone = 16.0
+/// How far the knob is drawn from the stick centre at most.
+[<Literal>]
+let private StickRadius = 44.0
+
+/// A floating stick: touching its zone puts the base under the finger, and the
+/// drag direction (8 sectors) holds the matching direction keys.
+type private Stick =
+    { Zone: obj
+      Base: obj
+      Knob: obj
+      mutable Pointer: int
+      mutable OriginX: float
+      mutable OriginY: float
+      mutable Held: string list
+      /// Left, right, up, down key codes this stick holds
+      mutable Keys: string * string * string * string }
+
+let private makeStick (n: int) =
+    let stickBase = getEl $"stick-base-{n}"
+    { Zone = getEl $"stick-zone-{n}"; Base = stickBase; Knob = query stickBase ".stick-knob"
+      Pointer = -1; OriginX = 0.0; OriginY = 0.0; Held = []
+      Keys = ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown") }
+
+let private sticks = [| makeStick 1; makeStick 2 |]
+let private shootButtons = [| getEl "tc-shoot-1"; getEl "tc-shoot-2" |]
+
+let private setStickKeys (s: Stick) (wanted: string list) =
+    for k in s.Held do
+        if not (List.contains k wanted) then keys.Remove k |> ignore
+    for k in wanted do
+        if not (List.contains k s.Held) then keys.Add k |> ignore
+    s.Held <- wanted
+
+let private moveStick (s: Stick) (x: float) (y: float) =
+    let dx, dy = x - s.OriginX, y - s.OriginY
+    let len = sqrt (dx * dx + dy * dy)
+    let k = if len > StickRadius then StickRadius / len else 1.0
+    setTransform s.Knob $"translate({dx * k}px, {dy * k}px)"
+    let left, right, up, down = s.Keys
+    // 8 sectors of 45°, sector 0 = right, counting clockwise (screen y is down)
+    let wanted =
+        if len < StickDeadzone then []
+        else
+            match (int (round (atan2 dy dx / (System.Math.PI / 4.0))) + 8) % 8 with
+            | 0 -> [ right ]
+            | 1 -> [ right; down ]
+            | 2 -> [ down ]
+            | 3 -> [ left; down ]
+            | 4 -> [ left ]
+            | 5 -> [ left; up ]
+            | 6 -> [ up ]
+            | _ -> [ right; up ]
+    setStickKeys s wanted
+
+let private releaseStick (s: Stick) =
+    s.Pointer <- -1
+    setStickKeys s []
+    setClass s.Base "active" false
+    setPos s.Base "" ""
+    setTransform s.Knob ""
+
+let private releaseAllTouches () =
+    for el in Seq.toArray touchHeld.Values do
+        setClass el "down" false
+        keys.Remove(attr el "data-key") |> ignore
+    touchHeld.Clear()
+    for s in sticks do releaseStick s
+
+/// Bind the control sets to the human teams of the match about to be played:
+/// set 1 drives the first human team, set 2 (two-human matches) the second.
+/// Team 1 plays on the arrows + RShift, team 2 on WASD + Space.
+let private bindControls () =
+    releaseAllTouches ()
+    // One `if` per line: on one line, `; if` would nest inside the first `then`
+    let humans =
+        [ if gs.Team1Human then 1
+          if gs.Team2Human then 2 ]
+    humans
+    |> List.iteri (fun set team ->
+        let s = sticks[set]
+        s.Keys <-
+            if team = 1 then ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown")
+            else ("KeyA", "KeyD", "KeyW", "KeyS")
+        setAttr shootButtons[set] "data-key" (if team = 1 then "ShiftRight" else "Space")
+        for el in [ s.Base; shootButtons[set] ] do
+            setClass el "rim-team1" (team = 1)
+            setClass el "rim-team2" (team = 2))
+
+let private onPointerDown (e: obj) =
+    let target = evTarget e
+    let button = closest target "[data-key]"
+    if not (isNull button) then
+        preventDefault e
+        holdButton (pointerId e) button
+    else
+        let zone = closest target ".stick-zone"
+        match sticks |> Array.tryFind (fun s -> s.Pointer < 0 && sameEl s.Zone zone) with
+        | Some s ->
+            preventDefault e
+            s.Pointer <- pointerId e
+            s.OriginX <- clientX e
+            s.OriginY <- clientY e
+            setClass s.Base "active" true
+            setPos s.Base $"{s.OriginX}px" $"{s.OriginY}px"
+            moveStick s s.OriginX s.OriginY
+        | None -> ()
+
+let private onPointerMove (e: obj) =
+    let id = pointerId e
+    match sticks |> Array.tryFind (fun s -> s.Pointer = id) with
+    | Some s -> moveStick s (clientX e) (clientY e)
+    | None ->
+        if touchHeld.ContainsKey id then
+            holdButton id (closest (elementAt (clientX e) (clientY e)) "[data-key]")
+
+let private onPointerUp (e: obj) =
+    let id = pointerId e
+    match sticks |> Array.tryFind (fun s -> s.Pointer = id) with
+    | Some s -> releaseStick s
+    | None -> holdButton id null
+
+let private menuTeam1 = getEl "tm-team1"
+let private menuTeam2 = getEl "tm-team2"
+let private menuPlayers = getEl "tm-players"
+let private menuFast = getEl "tm-fast"
+let private menuHard = getEl "tm-hard"
+let mutable private shownPlay = false
+
+let inline private isMatchMode mode = (mode = Playing || mode = LeaguePlaying)
+
+/// Mirror the app state into body classes (which pick the visible controls)
+/// and the tap-menu labels. Called after every update and tap.
+let private syncTouchUi () =
+    let play = isMatchMode app.Mode
+    if play <> shownPlay then
+        shownPlay <- play
+        if play then bindControls () else releaseAllTouches ()
+    let b = body ()
+    setClass b "mode-menu" (app.Mode = Menu)
+    setClass b "mode-play" play
+    setClass b "paused" (play && app.Paused)
+    setClass b "two-humans" (play && gs.Team1Human && gs.Team2Human)
+    setClass b "no-humans" (play && not gs.Team1Human && not gs.Team2Human)
+    setClass b "show-continue"
+        (match app.Mode with
+         | Playing | LeaguePlaying -> matchOver gs
+         | LeagueMatchup | LeagueStandings | LeagueFinalStandings -> true
+         | Menu -> false)
+    if app.Mode = Menu then
+        setText menuTeam1 teamNames[app.SelectedTeam1]
+        setText menuTeam2 teamNames[app.SelectedTeam2]
+        setText menuPlayers (if app.FivePlayerMode then "6 v 6" else "3 v 3")
+        setClass menuPlayers "on" true
+        setClass menuFast "on" app.FastHuman
+        setClass menuHard "on" app.HardMode
+
+let private stepTeam (current: int) (delta: int) = (current + delta + NumTeams) % NumTeams
+
+/// A tap on a data-action button.
+let private onTap (e: obj) =
+    let button = closest (evTarget e) "[data-action]"
+    if not (isNull button) then
+        match attr button "data-action" with
+        | "team1-prev" -> app.SelectedTeam1 <- stepTeam app.SelectedTeam1 -1
+        | "team1-next" -> app.SelectedTeam1 <- stepTeam app.SelectedTeam1 1
+        | "team2-prev" -> app.SelectedTeam2 <- stepTeam app.SelectedTeam2 -1
+        | "team2-next" -> app.SelectedTeam2 <- stepTeam app.SelectedTeam2 1
+        | "players" -> app.FivePlayerMode <- not app.FivePlayerMode
+        | "fast" -> app.FastHuman <- not app.FastHuman
+        | "hard" -> app.HardMode <- not app.HardMode
+        | "exhibition" when app.Mode = Menu ->
+            startExhibitionMatch app
+            enterFullscreenLandscape ()
+        | "league" when app.Mode = Menu ->
+            app.League <- Some(createLeagueState app.SelectedTeam1)
+            app.Mode <- LeagueMatchup
+            enterFullscreenLandscape ()
+        | "pause" -> pulseKey "KeyP"
+        | "menu" -> pulseKey "Escape"
+        | "continue" -> pulseKey "Space"
+        | _ -> ()
+        syncTouchUi ()
+        needsRender <- true
+        blurActive ()   // a focused button would also "click" on a keyboard Space/Enter
+
 let rec private loop (ts: float) =
     let dt = if lastTime = 0.0 then frameMs else ts - lastTime
     lastTime <- ts
     acc <- acc + min dt 200.0   // clamp to avoid spiral-of-death after a stall
 
+    // Touch layout in portrait: the rotate message hides the rink, so pause a
+    // running match; it stays paused after rotating back until PAUSE is tapped
+    if touchMode && isPortrait () && isMatchMode app.Mode && not app.Paused && not (matchOver gs) then
+        app.Paused <- true
+        releaseAllTouches ()
+        needsRender <- true
+
     while acc >= frameMs do
         update ()
+        releasePulses ()   // tapped keys count for exactly one update
         needsRender <- true
         acc <- acc - frameMs
 
@@ -455,12 +766,24 @@ let rec private loop (ts: float) =
     if needsRender then
         needsRender <- false
         render ()
+        if touchMode then syncTouchUi ()
 
     requestFrame loop
 
 // ─── Bootstrap ──────────────────────────────────────────────────────────
 onDocument "keydown" onKeyDown
 onDocument "keyup" onKeyUp
+if touchMode then
+    setClass (body ()) "touch" true
+    onDocument "pointerdown" onPointerDown
+    onDocument "pointermove" onPointerMove
+    onDocument "pointerup" onPointerUp
+    onDocument "pointercancel" onPointerUp
+    onDocument "click" onTap
+    onDocument "contextmenu" preventDefault   // long-press menus
+    // A backgrounded tab never delivers pointerup: drop every held key
+    onWindow "blur" (fun _ -> releaseAllTouches (); keys.Clear())
+    syncTouchUi ()
 // ResizeObserver catches every displayed-size change of the canvas (window
 // resize, fullscreen, initial layout), including ones that don't fire the
 // window resize event.
@@ -468,4 +791,5 @@ onElementResize canvas (fun () ->
     resizeCanvas ()
     needsRender <- true)
 resizeCanvas ()
+registerServiceWorker ()
 requestFrame loop

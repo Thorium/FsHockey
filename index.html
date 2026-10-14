@@ -2,8 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8"/>
-    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
     <title>The FS Hockey League</title>
+    <meta content="#0a0a1e" name="theme-color"/>
+    <!-- Installable app: manifest + icons (public/), service worker registered in Program.fs -->
+    <link href="/manifest.webmanifest" rel="manifest"/>
+    <link href="/icons/favicon-64.png" rel="icon" type="image/png"/>
+    <link href="/icons/apple-touch-icon.png" rel="apple-touch-icon"/>
+    <meta content="yes" name="mobile-web-app-capable"/>
+    <meta content="yes" name="apple-mobile-web-app-capable"/>
+    <meta content="black-translucent" name="apple-mobile-web-app-status-bar-style"/>
+    <meta content="FS Hockey" name="apple-mobile-web-app-title"/>
     <link href="./styles.css" rel="stylesheet"/>
 </head>
 <body>
@@ -18,6 +27,56 @@
         P2: <b>WASD</b> + <b>Space/Tab</b> (set a team to HUMAN PLAYER)
     </p>
     <a class="github-link" href="https://github.com/" rel="noopener noreferrer" target="_blank">The FS Hockey League — F# + Fable</a>
+</div>
+
+<!-- Touch layout (body.touch, see Program.fs): a tap menu, an on-screen stick
+     + SHOOT per human team during a match, and CONTINUE on result screens.
+     data-action buttons run one menu action per tap; data-key buttons hold
+     that key while a finger is on them. -->
+<div id="touch-menu">
+    <h1>THE FS HOCKEY LEAGUE</h1>
+    <div class="tm-row">
+        <span class="tm-label">Team 1</span>
+        <button data-action="team1-prev" type="button" aria-label="Previous team 1">◀</button>
+        <span class="tm-value" id="tm-team1">…</span>
+        <button data-action="team1-next" type="button" aria-label="Next team 1">▶</button>
+    </div>
+    <div class="tm-row">
+        <span class="tm-label">Team 2</span>
+        <button data-action="team2-prev" type="button" aria-label="Previous team 2">◀</button>
+        <span class="tm-value" id="tm-team2">…</span>
+        <button data-action="team2-next" type="button" aria-label="Next team 2">▶</button>
+    </div>
+    <div class="tm-row tm-toggles">
+        <button class="tm-toggle" data-action="players" id="tm-players" type="button">3 v 3</button>
+        <button class="tm-toggle" data-action="fast" id="tm-fast" type="button">Fast human</button>
+        <button class="tm-toggle" data-action="hard" id="tm-hard" type="button">Hard CPU</button>
+    </div>
+    <div class="tm-row tm-starts">
+        <button class="tm-start" data-action="exhibition" type="button">EXHIBITION</button>
+        <button class="tm-start" data-action="league" type="button">LEAGUE</button>
+    </div>
+</div>
+
+<div id="touch-controls">
+    <div class="tc-top">
+        <button class="tc tc-top-btn" data-action="pause" id="tc-pause" type="button">PAUSE</button>
+        <button class="tc tc-top-btn" data-action="menu" type="button" aria-label="Quit to the menu">MENU</button>
+    </div>
+    <button class="tc tc-continue" data-action="continue" type="button">CONTINUE</button>
+    <!-- Stick 1 drives the first human team, stick 2 (shown when both teams
+         are human) the second; Program.fs binds their keys per match -->
+    <div class="stick-zone" id="stick-zone-1" aria-label="Skate stick"></div>
+    <div class="stick-base" id="stick-base-1"><div class="stick-knob"></div></div>
+    <button class="tc tc-shoot" data-key="ShiftRight" id="tc-shoot-1" type="button">SHOOT</button>
+    <div class="stick-zone" id="stick-zone-2" aria-label="Second skate stick"></div>
+    <div class="stick-base" id="stick-base-2"><div class="stick-knob"></div></div>
+    <button class="tc tc-shoot" data-key="Space" id="tc-shoot-2" type="button">SHOOT</button>
+</div>
+
+<div id="rotate-hint">
+    Turn your device sideways to play
+    <span class="rotate-paused">Game paused</span>
 </div>
 <script src="./Program.fs.js" type="module"></script>
 </body>
