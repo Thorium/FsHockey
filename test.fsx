@@ -216,11 +216,36 @@ open Mibo.Elmish
 open Mibo.Input
 open HockeyDemo.App
 
-printfn "── Test 13: headless app — menu to exhibition match ──"
+/// Every runner replays the same matches. FSHOCKEY_TEST_SEED picks another
+/// seed, so the checks can be swept across many seeds.
+let seed =
+    match Int32.TryParse(Environment.GetEnvironmentVariable "FSHOCKEY_TEST_SEED") with
+    | true, s -> s
+    | _ -> 2026
+
+printfn "── Test 13: headless app — menu to exhibition match (seed %d) ──" seed
 
 let program =
-    HeadlessProgram.mkHeadless init update
+    HeadlessProgram.mkHeadless (fun ctx -> initWith (Random seed) ctx) update
     |> HeadlessProgram.withFixedStep fixedStepConfig
+
+/// Skaters never leave the rink. The puck may also sit just past a goal line
+/// inside the net mouth while the goal flash shows, before the faceoff reset.
+let onIce (gs: GameState) =
+    let inRink (e: Entity) =
+        e.X >= FieldLeft && e.X <= FieldRight && e.Y >= FieldTop && e.Y <= FieldBottom
+
+    let inNet (e: Entity) =
+        gs.GoalFlashTimer > 0<tick>
+        && e.Y >= GoalTop
+        && e.Y <= GoalBottom
+        && ((e.X < FieldLeft && e.X >= FieldLeft - GoalDepth)
+            || (e.X > FieldRight && e.X <= FieldRight + GoalDepth))
+
+    let puck = gs.Entities.[gs.PuckIdx]
+
+    Seq.forall (fun i -> inRink gs.Entities.[i]) (seq { 0 .. gs.NumPlayers - 1 })
+    && (inRink puck || inNet puck)
 
 let runner = new HeadlessRunner<Model, Msg>(program)
 let frame = TimeSpan.FromSeconds(1.0 / 60.0)
@@ -241,6 +266,14 @@ let releaseOn (r: HeadlessRunner<Model, Msg>) =
     r.Dispatch(InputChanged ActionState.empty)
 
 let press = pressOn runner
+
+/// Hand the puck to a skater. The marker stays on a puck-carrying teammate
+/// (no steals; force-release only after PossessionTimer ticks), so held input
+/// keeps driving that skater instead of a hand-over to a teammate closer to
+/// the puck returning it to AI control mid-hold.
+let givePuck (gs: GameState) idx =
+    gs.PuckState <- HeldBy idx
+    gs.PossessionTimer <- PossessionTimer
 
 check "boots into the menu" (runner.Model.Mode = Menu)
 
@@ -273,11 +306,7 @@ runner.StepN(3600, frame) // 60 virtual seconds; a 1-period match ends well with
 let gs = runner.Model.Gs
 check "match over" (matchOver gs)
 check "clock reached the period length" (gs.ClockSeconds >= gs.PeriodLength)
-check "entities stayed on the ice" (
-    seq { 0 .. gs.NumEntities - 1 }
-    |> Seq.forall (fun i ->
-        let e = gs.Entities.[i]
-        e.X >= FieldLeft && e.X <= FieldRight && e.Y >= FieldTop && e.Y <= FieldBottom))
+check "skaters on the ice, puck on the ice or in a net" (onIce gs)
 
 press Continue
 check "Space returns to the menu" (runner.Model.Mode = Menu)
@@ -337,6 +366,7 @@ r2.StepN(180, frame) // past the PERIOD 1 banner, let active-player settle
 
 let g18 = r2.Model.Gs
 let active18 = g18.ActivePlayer1
+givePuck g18 active18
 let startX18 = float g18.Entities.[active18].X
 let startY18 = float g18.Entities.[active18].Y
 holdOn r2 [ P1Right; P1Down ]
@@ -373,11 +403,22 @@ check "goal counted for team 1" (g19.Team1Score = score19 + 1)
 check "goal attributed to team 1" (g19.GoalScoredBy = Team1Scored)
 check "goal flash showing" (g19.GoalFlashTimer > 0<tick>)
 
-r2.StepN(120, frame) // flash runs out (90 ticks) and positions reset
-// By now a CPU skater may already have legitimately picked the puck up at
-// the faceoff, so assert the reset happened and play carried on — not that
-// the puck is still untouched.
-check "faceoff reset after the goal" (abs (float puck19.X - float CenterX) < 10.0)
+// Step until the flash (90 ticks) runs out: that tick resets positions and
+// play does not run, so the puck is still at the faceoff spot (centre plus
+// up to 6 px jitter) — afterwards a CPU skater may legitimately carry it off.
+let mutable frames19 = 0
+
+while g19.GoalFlashTimer > 0<tick> && frames19 < 120 do
+    r2.Step frame
+    frames19 <- frames19 + 1
+
+check "faceoff reset after the goal" (
+    g19.GoalFlashTimer = 0<tick>
+    && g19.PuckState = Free
+    && abs (float puck19.X - float CenterX) <= 6.0
+    && abs (float puck19.Y - float CenterY) <= 6.0)
+
+r2.StepN(120 - frames19, frame)
 check "play resumed after the goal" (g19.GoalFlashTimer = 0<tick> && g19.Playing)
 
 // ══════════════════════════════════════════════════════════════════════
@@ -396,6 +437,7 @@ check "gamepads enabled by default" r2.Model.GamepadEnabled
 
 let g20 = r2.Model.Gs
 let active20 = g20.ActivePlayer1
+givePuck g20 active20
 let startX20 = float g20.Entities.[active20].X
 r2.Dispatch(PadChanged(padDelta 1.0f 0.0f [||] [||])) // stick hard right
 r2.StepN(40, frame)
@@ -428,6 +470,7 @@ check "team 2 is human-controlled" r2.Model.Gs.Team2Human
 r2.StepN(180, frame)
 let g21 = r2.Model.Gs
 let active21 = g21.ActivePlayer2
+givePuck g21 active21
 let startX21 = float g21.Entities.[active21].X
 holdOn r2 [ P2Left ]
 r2.StepN(40, frame)
@@ -458,12 +501,14 @@ check "hard mode multiplies CPU speed" (abs (float cpuFwd.MaxSpeed - 32.0 * Hard
 // Goalie is speed-capped regardless of team stats
 check "goalie speed capped" (float g22.Entities.[g22.Team2Start].MaxSpeed <= float GoalieMaxSpeed)
 
-r2.StepN(300, frame) // goalie AI + teammate separation paths run
-check "6v6 sim stays on the ice" (
-    seq { 0 .. g22.NumEntities - 1 }
-    |> Seq.forall (fun i ->
-        let e = g22.Entities.[i]
-        e.X >= FieldLeft && e.X <= FieldRight && e.Y >= FieldTop && e.Y <= FieldBottom))
+// Goalie AI + teammate separation paths run; check every frame, not just the last
+let mutable onIce22 = true
+
+for _ in 1..300 do
+    r2.Step frame
+    onIce22 <- onIce22 && onIce g22
+
+check "6v6 sim: skaters stay on the ice, puck on the ice or in a net" onIce22
 
 press2 Back
 press2 TogglePlayerCount // restore 3v3

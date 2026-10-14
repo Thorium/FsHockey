@@ -50,7 +50,7 @@ let private view (ctx: GameContext) (m: Model) (buffer: RenderBuffer2D) =
         drawMenu buffer font w h m.SelectedTeam1 m.SelectedTeam2 m.ActiveColumn m.FastHuman m.HardMode m.FivePlayerMode m.GamepadEnabled
 
     | Playing ->
-        renderFrame buffer font m.Gs w h false
+        renderFrame buffer font m.Gs w h false m.FastHuman m.HardMode
 
         if m.Paused then
             drawPauseOverlay buffer font w h
@@ -60,11 +60,11 @@ let private view (ctx: GameContext) (m: Model) (buffer: RenderBuffer2D) =
         | Some league ->
             let t1, t2 = currentMatchup league
 
-            drawLeagueMatchup buffer font w h (league.CurrentRound + 1) league.Schedule.Length teamNames.[t1] teamNames.[t2]
+            drawLeagueMatchup buffer font w h (league.CurrentRound + 1) league.Schedule.Length t1 t2 m.FastHuman m.HardMode
         | None -> ()
 
     | LeaguePlaying ->
-        renderFrame buffer font m.Gs w h true
+        renderFrame buffer font m.Gs w h true m.FastHuman m.HardMode
 
         if m.Paused then
             drawPauseOverlay buffer font w h

@@ -243,8 +243,9 @@ let inline matchOver (gs: GameState) =
 
 // ─── Init ─────────────────────────────────────────────────────────────
 
-let init (_ctx: GameContext) : struct (Model * Cmd<Msg>) =
-    { Gs = createGameState ()
+/// Initial model whose match and league randomness all comes from `rng`.
+let initWith (rng: System.Random) (_ctx: GameContext) : struct (Model * Cmd<Msg>) =
+    { Gs = createGameStateWith rng
       Mode = Menu
       SelectedTeam1 = 0
       SelectedTeam2 = 1
@@ -259,6 +260,8 @@ let init (_ctx: GameContext) : struct (Model * Cmd<Msg>) =
       Pad1 = PadState.empty
       Pad2 = PadState.empty },
     Cmd.none
+
+let init (ctx: GameContext) = initWith (System.Random()) ctx
 
 // ─── Update: per-mode input handling ──────────────────────────────────
 // Edge-triggered actions are read from the Started set of a fresh
@@ -301,7 +304,7 @@ let private handleMenu (started: Set<HockeyAction>) (m: Model) : struct (Model *
 
     if started.Contains Select then startExhibitionMatch m, Cmd.none
     elif started.Contains StartLeague then
-        { m with League = Some(createLeagueState m.SelectedTeam1); Mode = LeagueMatchup }, Cmd.none
+        { m with League = Some(createLeagueState m.Gs.Rng m.SelectedTeam1); Mode = LeagueMatchup }, Cmd.none
     elif started.Contains Back then m, Cmd.signalExit
     else m, Cmd.none
 

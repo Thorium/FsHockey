@@ -183,7 +183,9 @@ let createEntity maxSpd accel shotPwr : Entity =
       Accel = accel
       ShotPower = shotPwr }
 
-let createGameState () : GameState =
+/// Game state drawing every random choice (faceoff jitter, AI wander and
+/// shot aim) from `rng`; pass a seeded Random for a reproducible match.
+let createGameStateWith (rng: Random) : GameState =
     let ppt = PlayersPerTeam3
 
     let ents =
@@ -194,7 +196,7 @@ let createGameState () : GameState =
                 createEntity PuckMaxSpeed zeroVel zeroVel)
 
     { Entities = ents
-      Rng = Random()
+      Rng = rng
       Team1Score = 0
       Team2Score = 0
       ClockSeconds = 0<sec>
@@ -237,6 +239,9 @@ let createGameState () : GameState =
       TrailMarkHead = 0
       PrevDirX = Array.zeroCreate MaxEntities
       PrevDirY = Array.zeroCreate MaxEntities }
+
+/// Game state with an unseeded Random: every match plays out differently.
+let createGameState () = createGameStateWith (Random())
 
 // ─── Set Player Mode ──────────────────────────────────────────────────
 
@@ -1272,8 +1277,7 @@ let createTeamStats () =
       GoalsFor = 0
       GoalsAgainst = 0 }
 
-let createLeagueState humanTeam =
-    let rng = Random()
+let createLeagueState (rng: Random) humanTeam =
     let schedule = generateSchedule NumTeams
 
     // Shuffle the round order (Fisher-Yates) so the human faces opponents

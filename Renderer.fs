@@ -42,8 +42,6 @@ let iceColor = Color.rgb 200uy 220uy 240uy
 let boardColor = Color.rgb 60uy 80uy 120uy
 let lineColor = Color.rgb 180uy 40uy 40uy
 let blueLineColor = Color.rgb 40uy 80uy 180uy
-let team1Color = Color.rgb 220uy 60uy 60uy
-let team2Color = Color.rgb 60uy 100uy 220uy
 let puckColor = Color.rgb 20uy 20uy 20uy
 let puckHighlight = Color.rgb 60uy 60uy 60uy
 let hudBg = Color.rgb 20uy 20uy 40uy
@@ -64,6 +62,58 @@ let gloveColor = Color.rgb 60uy 60uy 60uy
 let sockColor = Color.rgb 200uy 200uy 210uy
 let bgColor = Color.rgb 30uy 30uy 50uy
 let grayColor = Color.rgb 160uy 160uy 160uy
+/// Dimmed "(speed N)" hint after a team name (menu, league matchup).
+let speedHintColor = Color.rgb 105uy 105uy 125uy
+
+// ─── Team colours by side and speed class ────────────────────────────
+// The left team (team 1) wears red / orange / red-purple and the right team
+// (team 2) blue / yellow / green, fastest to slowest: the jersey tells how
+// quick a team is, and the two sides never share a colour. The purple is
+// tinted towards red to stay clear of the right side's blue; the green is
+// dark enough not to hide the active-player marker.
+
+[<Struct>]
+type SpeedClass =
+    | Fast
+    | Medium
+    | Slow
+
+/// Fast, medium and slow jersey colours of the left team.
+let private team1Colors =
+    struct (Color.rgb 220uy 60uy 60uy, Color.rgb 225uy 105uy 10uy, Color.rgb 190uy 80uy 160uy)
+/// Fast, medium and slow jersey colours of the right team.
+let private team2Colors =
+    struct (Color.rgb 60uy 100uy 220uy, Color.rgb 255uy 205uy 0uy, Color.rgb 30uy 130uy 60uy)
+
+// Speed classes come from the CPU teams' skating speeds as the menu shows them
+// under the current settings: the fastest CPU value is Fast, the slowest Slow,
+// anything between Medium. Hard mode speeds every CPU team up alike, so CPU
+// classes never change — but the human team is placed against those speeds,
+// so in hard mode the fast human drops to Medium.
+
+/// Slowest and fastest CPU team speed, without and with hard mode.
+let private cpuSpeedRanges =
+    [| false; true |]
+    |> Array.map (fun hardMode ->
+        let speeds = Array.init (NumTeams - 1) (fun i -> displayedTeamSpeed false hardMode (i + 1))
+        struct (Array.min speeds, Array.max speeds))
+
+/// Speed class of a team under the fast-human and hard-mode settings.
+let speedClass (fastHuman: bool) (hardMode: bool) (teamIdx: int) =
+    let struct (slowest, fastest) = cpuSpeedRanges[if hardMode then 1 else 0]
+    let v = displayedTeamSpeed fastHuman hardMode teamIdx
+    if v >= fastest then Fast
+    elif v <= slowest then Slow
+    else Medium
+
+/// Jersey colour of a team playing on the left (team 1) or right (team 2).
+let teamColor (rightSide: bool) (fastHuman: bool) (hardMode: bool) (teamIdx: int) =
+    let struct (fast, medium, slow) = if rightSide then team2Colors else team1Colors
+    match speedClass fastHuman hardMode teamIdx with
+    | Fast -> fast
+    | Medium -> medium
+    | Slow -> slow
+
 let private white = Color.White
 
 // ─── Drawing Helpers ──────────────────────────────────────────────────
@@ -376,8 +426,10 @@ let drawPuck (b: RenderBuffer2D) sx sy (offX: float32) (offY: float32) (puck: En
 
 // ─── Draw HUD ─────────────────────────────────────────────────────────
 
-let drawHud (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) sx sy (rinkBottom: float32) (width: float32) =
+let drawHud (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) sx sy (rinkBottom: float32) (width: float32) fastHuman hardMode =
     let hudY = rinkBottom + 2.0f
+    let team1Color = teamColor false fastHuman hardMode gs.Team1Idx
+    let team2Color = teamColor true fastHuman hardMode gs.Team2Idx
     let hudH = HudHeight * sy
 
     fillRect b 0.0f hudY width hudH hudBg LHud
@@ -490,7 +542,7 @@ let drawGameOver (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: 
 
 // ─── League Matchup Screen ────────────────────────────────────────────
 
-let drawLeagueMatchup (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: float32) roundNum totalRounds (team1Name: string) (team2Name: string) =
+let drawLeagueMatchup (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: float32) roundNum totalRounds (team1Idx: int) (team2Idx: int) fastHuman hardMode =
     fillRect b 0.0f 0.0f width height (Color.rgb 10uy 10uy 30uy) LBg
 
     let scale = min (width / OrigW) (height / OrigH)
@@ -498,9 +550,20 @@ let drawLeagueMatchup (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (h
 
     drawCentered b font bigSize width (height * 0.12f) "LEAGUE MODE" goalFlashColor LRink
     drawCentered b font medSize width (height * 0.28f) $"ROUND {roundNum} of {totalRounds}" white LRink
-    drawCentered b font medSize width (height * 0.42f) team1Name team1Color LRink
+    // Team name in its colour, then its skating speed dimmed as in the menu,
+    // centred together; the smaller hint sits on the name's baseline
+    let drawTeam (y: float32) (teamIdx: int) (color: Color) =
+        let name = teamNames.[teamIdx]
+        let hint = $"  (speed {displayedTeamSpeed fastHuman hardMode teamIdx})"
+        let struct (nameW, nameH) = measureText font medSize name
+        let struct (hintW, hintH) = measureText font smallSize hint
+        let x = (width - nameW - hintW) / 2.0f
+        drawText b font medSize x y name color LRink
+        drawText b font smallSize (x + nameW) (y + (nameH - hintH) * 0.8f) hint speedHintColor LRink
+
+    drawTeam (height * 0.42f) team1Idx (teamColor false fastHuman hardMode team1Idx)
     drawCentered b font smallSize width (height * 0.52f) "vs" grayColor LRink
-    drawCentered b font medSize width (height * 0.60f) team2Name team2Color LRink
+    drawTeam (height * 0.60f) team2Idx (teamColor true fastHuman hardMode team2Idx)
     drawCentered b font smallSize width (height * 0.80f) "Press SPACE to start match" grayColor LRink
 
 // ─── League Standings Screen ──────────────────────────────────────────
@@ -622,10 +685,10 @@ let drawMenu (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: fl
             // is, reflecting the current fast-human/hard-mode settings
             let struct (labelW, _) = measureText font smallSize label
             let spd = displayedTeamSpeed fastHuman hardMode i
-            drawText b font smallSize (colX + 4.0f + labelW) ty $" (speed {spd})" (Color.rgb 105uy 105uy 125uy) LTrail
+            drawText b font smallSize (colX + 4.0f + labelW) ty $" (speed {spd})" speedHintColor LTrail
 
-    drawColumn col1X "TEAM 1 (LEFT)" team1Color selectedTeam1 (activeColumn = 0)
-    drawColumn col2X "TEAM 2 (RIGHT)" team2Color selectedTeam2 (activeColumn = 1)
+    drawColumn col1X "TEAM 1 (LEFT)" (teamColor false fastHuman hardMode selectedTeam1) selectedTeam1 (activeColumn = 0)
+    drawColumn col2X "TEAM 2 (RIGHT)" (teamColor true fastHuman hardMode selectedTeam2) selectedTeam2 (activeColumn = 1)
 
     // Instructions
     let fastStr = if fastHuman then "ON" else "OFF"
@@ -651,7 +714,8 @@ let drawMenu (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: fl
 
 // ─── Main Render ──────────────────────────────────────────────────────
 
-let renderFrame (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: float32) (height: float32) leagueMode =
+/// `fastHuman` and `hardMode` set the speed class colours of the teams.
+let renderFrame (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: float32) (height: float32) leagueMode fastHuman hardMode =
     let w = width
     let h = height
 
@@ -685,6 +749,8 @@ let renderFrame (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: f
     let offX = (w - OrigW * sx) / 2.0f
     let offY = max 0.0f ((h - hudH - 2.0f - rinkGameH * sy) / 2.0f)
 
+    let team1Color = teamColor false fastHuman hardMode gs.Team1Idx
+    let team2Color = teamColor true fastHuman hardMode gs.Team2Idx
     drawRink b sx sy offX offY team1Color team2Color
 
     // Ice trail marks (drawn on ice, under players and puck)
@@ -751,7 +817,7 @@ let renderFrame (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: f
 
     // HUD (spans the full width, anchored to the bottom edge)
     let rinkBottom = h - hudH - 2.0f
-    drawHud b font gs sx sy rinkBottom w
+    drawHud b font gs sx sy rinkBottom w fastHuman hardMode
 
     // Overlays
     drawGoalFlash b font gs w h
