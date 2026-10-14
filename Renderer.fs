@@ -26,10 +26,60 @@ let iceColor = Color.FromArgb(200, 220, 240)
 let boardColor = Color.FromArgb(60, 80, 120)
 let lineColor = Color.FromArgb(180, 40, 40)
 let blueLineColor = Color.FromArgb(40, 80, 180)
-let team1Color = Color.FromArgb(220, 60, 60)
 let team1Light = Color.FromArgb(255, 120, 120)
-let team2Color = Color.FromArgb(60, 100, 220)
 let team2Light = Color.FromArgb(120, 160, 255)
+
+// ─── Team colours by side and speed class ────────────────────────────
+// The left team (team 1) wears red / orange / red-purple and the right team
+// (team 2) blue / yellow / green, fastest to slowest: the jersey tells how
+// quick a team is, and the two sides never share a colour. The purple is
+// tinted towards red to stay clear of the right side's blue; the green is
+// dark enough not to hide the active-player marker.
+
+[<Struct>]
+type SpeedClass =
+    | Fast
+    | Medium
+    | Slow
+
+/// Fast, medium and slow jersey colours of the left team.
+let private team1Colors =
+    struct (Color.FromArgb(220, 60, 60), Color.FromArgb(225, 105, 10), Color.FromArgb(190, 80, 160))
+/// Fast, medium and slow jersey colours of the right team.
+let private team2Colors =
+    struct (Color.FromArgb(60, 100, 220), Color.FromArgb(255, 205, 0), Color.FromArgb(30, 130, 60))
+
+// Speed classes come from the CPU teams' skating speeds as the menu shows them
+// under the current settings: the fastest CPU value is Fast, the slowest Slow,
+// anything between Medium. Hard mode speeds every CPU team up alike, so CPU
+// classes never change — but the human team is placed against those speeds,
+// so in hard mode the fast human drops to Medium.
+
+/// Slowest and fastest CPU team speed, without and with hard mode.
+let private cpuSpeedRanges =
+    [| false; true |]
+    |> Array.map (fun hardMode ->
+        let speeds = Array.init (NumTeams - 1) (fun i -> displayedTeamSpeed false hardMode (i + 1))
+        struct (Array.min speeds, Array.max speeds))
+
+/// Speed class of a team under the fast-human and hard-mode settings.
+let speedClass (fastHuman: bool) (hardMode: bool) (teamIdx: int) =
+    let struct (slowest, fastest) = cpuSpeedRanges[if hardMode then 1 else 0]
+    let v = displayedTeamSpeed fastHuman hardMode teamIdx
+    if v >= fastest then Fast
+    elif v <= slowest then Slow
+    else Medium
+
+/// Jersey colour of a team playing on the left (team 1) or right (team 2).
+let teamColor (rightSide: bool) (fastHuman: bool) (hardMode: bool) (teamIdx: int) =
+    let struct (fast, medium, slow) = if rightSide then team2Colors else team1Colors
+    match speedClass fastHuman hardMode teamIdx with
+    | Fast -> fast
+    | Medium -> medium
+    | Slow -> slow
+
+/// Dimmed "(speed N)" hint after a team name (menu, league matchup).
+let speedHintColor = Color.FromArgb(105, 105, 125)
 let puckColor = Color.FromArgb(20, 20, 20)
 let puckHighlight = Color.FromArgb(60, 60, 60)
 let hudBg = Color.FromArgb(20, 20, 40)
@@ -347,7 +397,7 @@ let drawPuck (g: Graphics) sx sy (puck: Entity) (animFrame: int) =
 
 // ─── Draw HUD ─────────────────────────────────────────────────────────
 
-let drawHud (g: Graphics) (gs: GameState) sx sy rinkBottom width =
+let drawHud (g: Graphics) (gs: GameState) sx sy rinkBottom width fastHuman hardMode =
     let hudY = rinkBottom + 2.0f
     let hudH = HudHeight * sy
 
@@ -358,8 +408,8 @@ let drawHud (g: Graphics) (gs: GameState) sx sy rinkBottom width =
     let font = fontFor fontSize FontStyle.Bold
     let smallFont = fontFor (fontSize * 0.75f) FontStyle.Regular
     let textBrush = solidBrush hudText
-    let t1Brush = solidBrush team1Color
-    let t2Brush = solidBrush team2Color
+    let t1Brush = solidBrush (teamColor false fastHuman hardMode gs.Team1Idx)
+    let t2Brush = solidBrush (teamColor true fastHuman hardMode gs.Team2Idx)
 
     // Team 1 name + score (left)
     g.DrawString(teamNames.[gs.Team1Idx], smallFont, t1Brush, 10.0f * sx, hudY + 4.0f)
@@ -478,7 +528,7 @@ let drawGameOver (g: Graphics) (gs: GameState) width height leagueMode =
 
 // ─── League Matchup Screen ────────────────────────────────────────────
 
-let drawLeagueMatchup (g: Graphics) width height roundNum totalRounds (team1Name: string) (team2Name: string) =
+let drawLeagueMatchup (g: Graphics) width height roundNum totalRounds (team1Idx: int) (team2Idx: int) fastHuman hardMode =
     g.FillRectangle(solidBrush (Color.FromArgb(10, 10, 30)), 0.0f, 0.0f, width, height)
 
     let scale = min (width / OrigW) (height / OrigH)
@@ -489,14 +539,24 @@ let drawLeagueMatchup (g: Graphics) width height roundNum totalRounds (team1Name
     let yellowBrush = solidBrush goalFlashColor
     let whiteBrush = solidBrush Color.White
     let grayBrush = solidBrush (Color.FromArgb(160, 160, 160))
-    let t1Brush = solidBrush team1Color
-    let t2Brush = solidBrush team2Color
+    let hintBrush = solidBrush speedHintColor
+
+    // Team name in its colour, then its skating speed dimmed as in the menu,
+    // centred together; the smaller hint sits on the name's baseline
+    let drawTeam (y: float32) (teamIdx: int) (color: Color) =
+        let name = teamNames.[teamIdx]
+        let hint = $"  (speed {displayedTeamSpeed fastHuman hardMode teamIdx})"
+        let nameSize = g.MeasureString(name, medFont)
+        let hintSize = g.MeasureString(hint, smallFont)
+        let x = (width - nameSize.Width - hintSize.Width) / 2.0f
+        g.DrawString(name, medFont, solidBrush color, x, y)
+        g.DrawString(hint, smallFont, hintBrush, x + nameSize.Width, y + (nameSize.Height - hintSize.Height) * 0.8f)
 
     drawCentered g bigFont yellowBrush width (height * 0.12f) "LEAGUE MODE"
     drawCentered g medFont whiteBrush width (height * 0.28f) $"ROUND {roundNum} of {totalRounds}"
-    drawCentered g medFont t1Brush width (height * 0.42f) team1Name
+    drawTeam (height * 0.42f) team1Idx (teamColor false fastHuman hardMode team1Idx)
     drawCentered g smallFont grayBrush width (height * 0.52f) "vs"
-    drawCentered g medFont t2Brush width (height * 0.60f) team2Name
+    drawTeam (height * 0.60f) team2Idx (teamColor true fastHuman hardMode team2Idx)
     drawCentered g smallFont grayBrush width (height * 0.80f) "Press SPACE to start match"
 
 // ─── League Standings Screen ──────────────────────────────────────────
@@ -594,7 +654,7 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
     let whiteBrush = solidBrush Color.White
     let yellowBrush = solidBrush goalFlashColor
     let grayBrush = solidBrush (Color.FromArgb(140, 140, 140))
-    let dimBrush = solidBrush (Color.FromArgb(105, 105, 125))
+    let dimBrush = solidBrush speedHintColor
 
     // Title + subtitle
     drawCentered g bigFont yellowBrush width (height * 0.06f) "THE FS HOCKEY LEAGUE"
@@ -636,8 +696,8 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
             let spd = displayedTeamSpeed fastHuman hardMode i
             g.DrawString($"(speed {spd})", smallFont, dimBrush, colX + labelW, ty)
 
-    drawColumn col1X "TEAM 1 (LEFT)" team1Color selectedTeam1 (activeColumn = 0)
-    drawColumn col2X "TEAM 2 (RIGHT)" team2Color selectedTeam2 (activeColumn = 1)
+    drawColumn col1X "TEAM 1 (LEFT)" (teamColor false fastHuman hardMode selectedTeam1) selectedTeam1 (activeColumn = 0)
+    drawColumn col2X "TEAM 2 (RIGHT)" (teamColor true fastHuman hardMode selectedTeam2) selectedTeam2 (activeColumn = 1)
 
     // Instructions
     let fastStr = if fastHuman then "ON" else "OFF"
@@ -662,7 +722,8 @@ let drawMenu (g: Graphics) width height selectedTeam1 selectedTeam2 activeColumn
 
 // ─── Main Render ──────────────────────────────────────────────────────
 
-let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
+/// `fastHuman` and `hardMode` set the speed class colours of the teams.
+let renderFrame (g: Graphics) (gs: GameState) width height leagueMode fastHuman hardMode =
     g.SmoothingMode <- SmoothingMode.AntiAlias
     g.TextRenderingHint <- Text.TextRenderingHint.ClearTypeGridFit
 
@@ -691,6 +752,8 @@ let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
     use savedTransform = g.Transform
     g.TranslateTransform(offX, offY)
 
+    let team1Color = teamColor false fastHuman hardMode gs.Team1Idx
+    let team2Color = teamColor true fastHuman hardMode gs.Team2Idx
     drawRink g sx sy team1Color team2Color
 
     // Ice trail marks (drawn on ice, under players and puck)
@@ -753,7 +816,7 @@ let renderFrame (g: Graphics) (gs: GameState) width height leagueMode =
 
     // HUD (spans the full width, anchored to the bottom edge)
     let rinkBottom = h - hudH - 2.0f
-    drawHud g gs sx sy rinkBottom w
+    drawHud g gs sx sy rinkBottom w fastHuman hardMode
 
     // Overlays
     drawGoalFlash g gs w h

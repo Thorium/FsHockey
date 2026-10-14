@@ -24,15 +24,21 @@ let check (name: string) cond =
 
 let approx (a: float) (b: float) = abs (a - b) < 1e-6
 
+/// Fire key held, no direction keys.
+let fireDown = { Input.none with Fire = true }
+
 /// Fresh 3v3 game state with player 0 holding the puck, facing (dirX, dirY).
-let mkHolding dirX dirY (shotPower: float<subpx / tick>) =
+/// Release speed is the match-wide ShotSpeed; the shooter's own ShotPower stat
+/// is set to an unrelated value so every speed check also proves it is ignored.
+let mkHolding dirX dirY (shotSpeed: float<subpx / tick>) =
     let gs = createGameState ()
     let p = gs.Entities.[0]
     p.X <- 100.0<px>
     p.Y <- 80.0<px>
     p.DirX <- dirX
     p.DirY <- dirY
-    p.ShotPower <- shotPower
+    p.ShotPower <- 1.0<subpx / tick>
+    gs.ShotSpeed <- shotSpeed
     gs.PuckState <- HeldBy 0
     gs
 
@@ -71,11 +77,11 @@ let t4gs = mkHolding 1.0 0.0 38.0<subpx / tick>
 let mutable t4hold = 0<tick>
 
 for _ in 1 .. int ChargeTicksForFull do
-    applyHumanInput t4gs 0 false false false false true &t4hold
+    applyHumanInput t4gs 0 fireDown &t4hold
 
 check "held the full charge duration" (t4hold = ChargeTicksForFull)
 // Release (fire key up) fires the shot
-applyHumanInput t4gs 0 false false false false false &t4hold
+applyHumanInput t4gs 0 Input.none &t4hold
 let t4puck = t4gs.Entities.[t4gs.PuckIdx]
 check "full charge shoots at full power" (approx (float t4puck.VelX) 38.0)
 check "hold counter reset after release" (t4hold = 0<tick>)
@@ -86,8 +92,8 @@ printfn "── Test 5: charge mechanic — quick tap is a weak pass ──"
 
 let t5gs = mkHolding 1.0 0.0 38.0<subpx / tick>
 let mutable t5hold = 0<tick>
-applyHumanInput t5gs 0 false false false false true &t5hold // 1 tick hold
-applyHumanInput t5gs 0 false false false false false &t5hold // release
+applyHumanInput t5gs 0 fireDown &t5hold // 1 tick hold
+applyHumanInput t5gs 0 Input.none &t5hold // release
 let t5puck = t5gs.Entities.[t5gs.PuckIdx]
 
 let t5expected =
@@ -103,7 +109,7 @@ printfn "── Test 6: fire while a teammate holds the puck does nothing ──
 let t6gs = createGameState ()
 t6gs.PuckState <- HeldBy 1
 let mutable t6hold = 0<tick>
-applyHumanInput t6gs 0 false false false false true &t6hold
+applyHumanInput t6gs 0 fireDown &t6hold
 check "puck still HeldBy 1" (t6gs.PuckState = HeldBy 1)
 
 // ══════════════════════════════════════════════════════════════════════

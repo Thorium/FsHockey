@@ -331,7 +331,7 @@ type HockeyForm() as this =
                     app.GamepadEnabled
 
             | Playing ->
-                renderFrame g gs w h false
+                renderFrame g gs w h false app.FastHuman app.HardMode
 
                 if app.Paused then
                     drawPauseOverlay g fw fh
@@ -347,12 +347,14 @@ type HockeyForm() as this =
                         fh
                         (league.CurrentRound + 1)
                         league.Schedule.Length
-                        teamNames.[t1]
-                        teamNames.[t2]
+                        t1
+                        t2
+                        app.FastHuman
+                        app.HardMode
                 | None -> ()
 
             | LeaguePlaying ->
-                renderFrame g gs w h true
+                renderFrame g gs w h true app.FastHuman app.HardMode
 
                 if app.Paused then
                     drawPauseOverlay g fw fh

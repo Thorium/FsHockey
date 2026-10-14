@@ -41,6 +41,22 @@ Hold the shoot key longer for a harder shot. A quick tap gives a weaker pass.
 
 Set a team to **HUMAN PLAYER** for keyboard control. Both teams can be human or CPU.
 
+## Team colours
+
+The jersey colour tells a team's side and how fast it skates:
+
+| Speed class | Team 1 (left) | Team 2 (right) |
+|-------------|---------------|----------------|
+| Fastest     | Red           | Blue           |
+| Medium      | Orange        | Yellow         |
+| Slowest     | Red-purple    | Green          |
+
+The classes come from the CPU teams' speeds as the menu shows them (fastest
+value, slowest value, anything between), and the Human Player is placed among
+them by its own speed. Hard mode speeds every CPU team up alike, so their
+classes stay, but the fast Human Player drops to medium. The league's
+next-game screen shows each team's speed after its name, as the menu does.
+
 
 ## Credits
 
