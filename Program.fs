@@ -417,7 +417,7 @@ let private render () =
         drawMenu ctx fw fh app.SelectedTeam1 app.SelectedTeam2 app.ActiveColumn app.FastHuman app.HardMode app.FivePlayerMode app.GamepadEnabled
 
     | Playing ->
-        renderFrame ctx gs viewW viewH false hudInset
+        renderFrame ctx gs viewW viewH false hudInset app.FastHuman app.HardMode
         if app.Paused then drawPauseOverlay ctx viewW viewH
 
     | LeagueMatchup ->
@@ -431,23 +431,26 @@ let private render () =
                 fh
                 (league.CurrentRound + 1)
                 league.Schedule.Length
-                teamNames.[t1]
-                teamNames.[t2]
+                t1
+                t2
+                app.FastHuman
+                app.HardMode
+                touchMode
         | None -> ()
 
     | LeaguePlaying ->
-        renderFrame ctx gs viewW viewH true hudInset
+        renderFrame ctx gs viewW viewH true hudInset app.FastHuman app.HardMode
         if app.Paused then drawPauseOverlay ctx viewW viewH
 
     | LeagueStandings ->
         app.League
         |> Option.iter (fun league ->
-            drawLeagueStandings ctx fw fh (getSortedStandings league) false league.HumanTeam)
+            drawLeagueStandings ctx fw fh (getSortedStandings league) false league.HumanTeam touchMode)
 
     | LeagueFinalStandings ->
         app.League
         |> Option.iter (fun league ->
-            drawLeagueStandings ctx fw fh (getSortedStandings league) true league.HumanTeam)
+            drawLeagueStandings ctx fw fh (getSortedStandings league) true league.HumanTeam touchMode)
 
 // ─── Input handlers ──────────────────────────────────────────────────────
 
@@ -496,6 +499,10 @@ let private closest (el: obj) (selector: string) : obj = jsNative
 let private attr (el: obj) (name: string) : string = jsNative
 [<Emit("$0.setAttribute($1, $2)")>]
 let private setAttr (el: obj) (name: string) (value: string) : unit = jsNative
+[<Emit("$0.style.borderColor = $1")>]
+let private setBorderColor (el: obj) (css: string) : unit = jsNative
+[<Emit("$0.style.color = $1")>]
+let private setTextColor (el: obj) (css: string) : unit = jsNative
 [<Emit("$0.querySelector($1)")>]
 let private query (el: obj) (selector: string) : obj = jsNative
 [<Emit("$0.target")>]
@@ -516,11 +523,30 @@ let private setPos (el: obj) (left: string) (top: string) : unit = jsNative
 let private setTransform (el: obj) (t: string) : unit = jsNative
 [<Emit("document.activeElement && document.activeElement.blur && document.activeElement.blur()")>]
 let private blurActive () : unit = jsNative
-/// Fullscreen + landscape lock where the browser allows it (Android); a no-op
-/// elsewhere (iOS Safari has neither for pages). Must run inside a tap handler.
+/// Fullscreen + landscape lock where the browser allows it (Android, iPad —
+/// older iPads only have the webkit-prefixed call); a no-op on iPhone, whose
+/// Safari has no fullscreen for pages. Must run inside a tap handler.
 /// Never throws: older browsers return no promise from requestFullscreen.
-[<Emit("(function(){ try { var d = document.documentElement; if (!document.fullscreenElement && d.requestFullscreen) { Promise.resolve(d.requestFullscreen()).then(function(){ if (screen.orientation && screen.orientation.lock) return screen.orientation.lock('landscape'); }).catch(function(){}); } } catch (e) {} })()")>]
+[<Emit("(function(){ try { var d = document.documentElement; var req = d.requestFullscreen || d.webkitRequestFullscreen; if (!(document.fullscreenElement || document.webkitFullscreenElement) && req) { Promise.resolve(req.call(d)).then(function(){ if (screen.orientation && screen.orientation.lock) return screen.orientation.lock('landscape'); }).catch(function(){}); } } catch (e) {} })()")>]
 let private enterFullscreenLandscape () : unit = jsNative
+/// An iPhone running the game in a browser tab rather than from the Home
+/// Screen: the browser bars stay, and only Add to Home Screen gives the game
+/// the full screen.
+[<Emit("/iPhone|iPod/.test(navigator.userAgent) && !navigator.standalone && !(window.matchMedia && window.matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches)")>]
+let private iPhoneBrowserTab () : bool = jsNative
+[<Emit("$0.prompt()")>]
+let private showInstallPrompt (prompt: obj) : unit = jsNative
+
+/// The browser's install prompt (Android / desktop Chrome, Edge), captured on
+/// `beforeinstallprompt` and shown by the rotate screen's Install as app button.
+let mutable private installPrompt: obj = null
+
+/// Show the install prompt (from a tap); a prompt can be shown only once.
+let private promptInstall () =
+    if not (isNull installPrompt) then
+        showInstallPrompt installPrompt
+        installPrompt <- null
+        setClass (body ()) "can-install" false
 
 /// Keys tapped since the last update; released again right after it.
 let private pulses = System.Collections.Generic.List<string>()
@@ -628,7 +654,8 @@ let private releaseAllTouches () =
 
 /// Bind the control sets to the human teams of the match about to be played:
 /// set 1 drives the first human team, set 2 (two-human matches) the second.
-/// Team 1 plays on the arrows + RShift, team 2 on WASD + Space.
+/// Team 1 plays on the arrows + RShift, team 2 on WASD + Space; each set is
+/// rimmed in its team's colour.
 let private bindControls () =
     releaseAllTouches ()
     // One `if` per line: on one line, `; if` would nest inside the first `then`
@@ -642,9 +669,9 @@ let private bindControls () =
             if team = 1 then ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown")
             else ("KeyA", "KeyD", "KeyW", "KeyS")
         setAttr shootButtons[set] "data-key" (if team = 1 then "ShiftRight" else "Space")
+        let rim = if team = 1 then teamColor false app.FastHuman app.HardMode gs.Team1Idx else teamColor true app.FastHuman app.HardMode gs.Team2Idx
         for el in [ s.Base; shootButtons[set] ] do
-            setClass el "rim-team1" (team = 1)
-            setClass el "rim-team2" (team = 2))
+            setBorderColor el rim.Css)
 
 let private onPointerDown (e: obj) =
     let target = evTarget e
@@ -709,6 +736,9 @@ let private syncTouchUi () =
     if app.Mode = Menu then
         setText menuTeam1 teamNames[app.SelectedTeam1]
         setText menuTeam2 teamNames[app.SelectedTeam2]
+        // Each name in the jersey colour that team will wear
+        setTextColor menuTeam1 (teamColor false app.FastHuman app.HardMode app.SelectedTeam1).Css
+        setTextColor menuTeam2 (teamColor true app.FastHuman app.HardMode app.SelectedTeam2).Css
         setText menuPlayers (if app.FivePlayerMode then "6 v 6" else "3 v 3")
         setClass menuPlayers "on" true
         setClass menuFast "on" app.FastHuman
@@ -738,6 +768,7 @@ let private onTap (e: obj) =
         | "pause" -> pulseKey "KeyP"
         | "menu" -> pulseKey "Escape"
         | "continue" -> pulseKey "Space"
+        | "install" -> promptInstall ()
         | _ -> ()
         syncTouchUi ()
         needsRender <- true
@@ -775,6 +806,16 @@ onDocument "keydown" onKeyDown
 onDocument "keyup" onKeyUp
 if touchMode then
     setClass (body ()) "touch" true
+    setClass (body ()) "iphone-tab" (iPhoneBrowserTab ())
+    // Install as app: browsers with an install API hand over a prompt to show
+    // from a tap; it goes away once the app is installed
+    onWindow "beforeinstallprompt" (fun e ->
+        preventDefault e
+        installPrompt <- e
+        setClass (body ()) "can-install" true)
+    onWindow "appinstalled" (fun _ ->
+        installPrompt <- null
+        setClass (body ()) "can-install" false)
     onDocument "pointerdown" onPointerDown
     onDocument "pointermove" onPointerMove
     onDocument "pointerup" onPointerUp

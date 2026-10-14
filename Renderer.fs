@@ -47,10 +47,55 @@ let iceColor = Color(200, 220, 240)
 let boardColor = Color(60, 80, 120)
 let lineColor = Color(180, 40, 40)
 let blueLineColor = Color(40, 80, 180)
-let team1Color = Color(220, 60, 60)
 let team1Light = Color(255, 120, 120)
-let team2Color = Color(60, 100, 220)
 let team2Light = Color(120, 160, 255)
+
+// ─── Team colours by side and speed class ────────────────────────────
+// The left team (team 1) wears red / orange / red-purple and the right team
+// (team 2) blue / yellow / green, fastest to slowest: the jersey tells how
+// quick a team is, and the two sides never share a colour. The purple is
+// tinted towards red to stay clear of the right side's blue; the green is
+// dark enough not to hide the active-player marker.
+
+[<Struct>]
+type SpeedClass =
+    | Fast
+    | Medium
+    | Slow
+
+/// Fast, medium and slow jersey colours of the left team.
+let private team1Colors = struct (Color(220, 60, 60), Color(225, 105, 10), Color(190, 80, 160))
+/// Fast, medium and slow jersey colours of the right team.
+let private team2Colors = struct (Color(60, 100, 220), Color(255, 205, 0), Color(30, 130, 60))
+
+// Speed classes come from the CPU teams' skating speeds as the menu shows them
+// under the current settings: the fastest CPU value is Fast, the slowest Slow,
+// anything between Medium. Hard mode speeds every CPU team up alike, so CPU
+// classes never change — but the human team is placed against those speeds,
+// so in hard mode the fast human drops to Medium.
+
+/// Slowest and fastest CPU team speed, without and with hard mode.
+let private cpuSpeedRanges =
+    [| false; true |]
+    |> Array.map (fun hardMode ->
+        let speeds = Array.init (NumTeams - 1) (fun i -> displayedTeamSpeed false hardMode (i + 1))
+        struct (Array.min speeds, Array.max speeds))
+
+/// Speed class of a team under the fast-human and hard-mode settings.
+let speedClass (fastHuman: bool) (hardMode: bool) (teamIdx: int) =
+    let struct (slowest, fastest) = cpuSpeedRanges[if hardMode then 1 else 0]
+    let v = displayedTeamSpeed fastHuman hardMode teamIdx
+    if v >= fastest then Fast
+    elif v <= slowest then Slow
+    else Medium
+
+/// Jersey colour of a team playing on the left (team 1) or right (team 2).
+let teamColor (rightSide: bool) (fastHuman: bool) (hardMode: bool) (teamIdx: int) =
+    let struct (fast, medium, slow) = if rightSide then team2Colors else team1Colors
+    match speedClass fastHuman hardMode teamIdx with
+    | Fast -> fast
+    | Medium -> medium
+    | Slow -> slow
 let puckColor = Color(20, 20, 20)
 let puckHighlight = Color(60, 60, 60)
 let hudBg = Color(20, 20, 40)
@@ -71,6 +116,8 @@ let gloveColor = Color(60, 60, 60)
 let sockColor = Color(200, 200, 210)
 let bgColor = Color(30, 30, 50)
 let grayColor = Color(160, 160, 160)
+/// Dimmed "(speed N)" hint after a team name (menu, league matchup).
+let speedHintColor = Color(105, 105, 125)
 let jerseyStripeColor = Color(255, 255, 255, 80)
 let cageColor = Color(100, 100, 100)
 let padOutlineColor = Color(160, 150, 130)
@@ -107,6 +154,23 @@ let private drawCentered (ctx: obj) (size: float) (width: float) (y: float) (tex
     drawText ctx size text ((width - w) / 2.0) y color
 
 /// Create font sizes at a given scale factor (matches the GDI+ point sizes).
+/// How much larger the touch layout draws overlay text (game over): phone
+/// screens are small, and the text is read at arm's length.
+[<Literal>]
+let private TouchTextScale = 1.6
+
+/// Height (CSS px) the touch layout's CONTINUE button takes at the bottom of
+/// the screen (styles.css .tc-continue: 24 px from the edge, 60 px tall, plus a
+/// gap); result screens keep their text above it.
+[<Literal>]
+let private TouchContinueReserve = 96.0
+
+/// Height (CSS px) of the touch layout's top button row (PAUSE / MENU in
+/// styles.css .tc-top: 10 px from the edge, 36 px tall, plus a gap); tables
+/// start below it.
+[<Literal>]
+let private TouchTopBarReserve = 52.0
+
 let private mkFonts (scale: float) =
     let big = max 8.0 (9.0 * scale)
     let med = max 7.0 (6.0 * scale)
@@ -335,11 +399,13 @@ let drawPuck (ctx: obj) sx sy (puck: Entity) (animFrame: int) =
 
 /// `edgeInset` keeps the team names and scores that far in from the left and
 /// right edges (the touch layout puts its stick and SHOOT button there).
-let drawHud (ctx: obj) (gs: GameState) sx sy rinkBottom width edgeInset =
+let drawHud (ctx: obj) (gs: GameState) sx sy rinkBottom width edgeInset fastHuman hardMode =
     let hudY = rinkBottom + 2.0
     let hudH = HudHeight * sy
 
     fillRect ctx 0.0 hudY width hudH hudBg
+    let team1Color = teamColor false fastHuman hardMode gs.Team1Idx
+    let team2Color = teamColor true fastHuman hardMode gs.Team2Idx
     drawLine ctx 0.0 hudY width hudY 2.0 boardColor
 
     let fontSize = max 12.0 (12.0 * min sx sy)
@@ -425,18 +491,22 @@ let drawGoalFlash (ctx: obj) (gs: GameState) width height =
 
 // ─── Game Over Screen ─────────────────────────────────────────────────
 
-let drawGameOver (ctx: obj) (gs: GameState) width height leagueMode =
+/// `touch`: the touch layout, whose small phone screens get the text larger
+/// and its CONTINUE button instead of the "Press SPACE" line.
+let drawGameOver (ctx: obj) (gs: GameState) width height leagueMode touch =
     fillRect ctx 0.0 0.0 width height (Color(0, 0, 0, 160))
 
     let scale = min (width / OrigW) (height / OrigH)
-    let struct (bigSize, medSize, smallSize) = mkFonts scale
+    let struct (bigSize, medSize, smallSize) = mkFonts (if touch then scale * TouchTextScale else scale)
+    // Shrink a line that would not fit the width (long team names, big text)
+    let fitted size (text: string) = min size (size * width * 0.92 / measureWidth ctx size text)
 
     drawCentered ctx bigSize width (height * 0.25) "GAME OVER" goalFlashColor
 
     let scoreStr =
         $"{teamNames.[gs.Team1Idx]}  {gs.Team1Score}  -  {gs.Team2Score}  {teamNames.[gs.Team2Idx]}"
 
-    drawCentered ctx medSize width (height * 0.40) scoreStr Color.White
+    drawCentered ctx (fitted medSize scoreStr) width (height * 0.40) scoreStr Color.White
 
     let winner =
         match sign (compare gs.Team1Score gs.Team2Score) with
@@ -444,7 +514,7 @@ let drawGameOver (ctx: obj) (gs: GameState) width height leagueMode =
         | -1 -> $"{teamNames.[gs.Team2Idx]} WINS!"
         | _ -> "IT'S A TIE!"
 
-    drawCentered ctx medSize width (height * 0.52) winner goalFlashColor
+    drawCentered ctx (fitted medSize winner) width (height * 0.52) winner goalFlashColor
 
     let instrStr =
         if leagueMode then
@@ -452,38 +522,78 @@ let drawGameOver (ctx: obj) (gs: GameState) width height leagueMode =
         else
             "Press SPACE for main menu"
 
-    drawCentered ctx smallSize width (height * 0.72) instrStr (Color(180, 180, 180))
+    if not touch then
+        drawCentered ctx smallSize width (height * 0.72) instrStr (Color(180, 180, 180))
 
 // ─── League Matchup Screen ────────────────────────────────────────────
 
-let drawLeagueMatchup (ctx: obj) width height roundNum totalRounds (team1Name: string) (team2Name: string) =
+/// `touch`: the touch layout, whose text is larger and whose CONTINUE button
+/// replaces the "Press SPACE" line.
+let drawLeagueMatchup (ctx: obj) width height roundNum totalRounds (team1Idx: int) (team2Idx: int) fastHuman hardMode touch =
     fillRect ctx 0.0 0.0 width height (Color(10, 10, 30))
 
     let scale = min (width / OrigW) (height / OrigH)
-    let struct (bigSize, medSize, smallSize) = mkFonts scale
+    let struct (bigSize, medSize, smallSize) = mkFonts (if touch then scale * TouchTextScale else scale)
 
     drawCentered ctx bigSize width (height * 0.12) "LEAGUE MODE" goalFlashColor
     drawCentered ctx medSize width (height * 0.28) $"ROUND {roundNum} of {totalRounds}" Color.White
-    drawCentered ctx medSize width (height * 0.42) team1Name team1Color
+    // Team name in its colour, then its skating speed dimmed as in the menu,
+    // centred together; the smaller hint sits on the name's baseline
+    let drawTeam (y: float) (teamIdx: int) (color: Color) =
+        let name = teamNames.[teamIdx]
+        let hint = $"  (speed {displayedTeamSpeed fastHuman hardMode teamIdx})"
+        let nameW = measureWidth ctx medSize name
+        let x = (width - nameW - measureWidth ctx smallSize hint) / 2.0
+        drawText ctx medSize name x y color
+        drawText ctx smallSize hint (x + nameW) (y + (medSize - smallSize) * 0.85) speedHintColor
+
+    drawTeam (height * 0.42) team1Idx (teamColor false fastHuman hardMode team1Idx)
     drawCentered ctx smallSize width (height * 0.52) "vs" grayColor
-    drawCentered ctx medSize width (height * 0.60) team2Name team2Color
-    drawCentered ctx smallSize width (height * 0.80) "Press SPACE to start match" grayColor
+    drawTeam (height * 0.60) team2Idx (teamColor true fastHuman hardMode team2Idx)
+    if not touch then
+        drawCentered ctx smallSize width (height * 0.80) "Press SPACE to start match" grayColor
 
 // ─── League Standings Screen ──────────────────────────────────────────
 
-let drawLeagueStandings (ctx: obj) width height (standings: (int * TeamStats) array) isFinal humanTeam =
+/// `touch`: the touch layout — text as large as fits above its CONTINUE
+/// button (up to TouchTextScale), the winner line right under the table, and
+/// no "Press SPACE" line.
+let drawLeagueStandings (ctx: obj) width height (standings: (int * TeamStats) array) isFinal humanTeam touch =
     fillRect ctx 0.0 0.0 width height (Color(10, 10, 30))
 
-    let scale = min (width / OrigW) (height / OrigH)
+    let baseScale = min (width / OrigW) (height / OrigH)
+    // Layout at content scale `s`. The desktop keeps its original spacing; the
+    // touch layout puts the title at the top edge and the headers right under
+    // it, packs the rows a little tighter and draws the winner line at the
+    // title's size under the table, so the text can grow on a phone.
+    let bigAt (s: float) = let struct (big, _, _) = mkFonts s in big
+    let titleYAt (_: float) = if touch then 8.0 else height * 0.04
+    let headerYAt (s: float) =
+        if touch then max (titleYAt s + bigAt s * 1.3) TouchTopBarReserve else height * 0.14
+    let rowHAt (s: float) = let struct (_, _, small) = mkFonts s in small * (if touch then 1.5 else 1.7)
+    let winnerSizeAt (s: float) = if touch then bigAt s else max 14.0 (14.0 * s)
+    // Bottom of the table, plus the winner line under it in the touch layout
+    let contentBottom (s: float) =
+        let struct (_, med, _) = mkFonts s
+        let tableBottom = headerYAt s + med * 1.4 + 4.0 + float standings.Length * rowHAt s
+        if isFinal then tableBottom + winnerSizeAt s * 1.4 else tableBottom
+    let scale =
+        if not touch then baseScale
+        else
+            // Largest step up to TouchTextScale whose content clears CONTINUE
+            [ TouchTextScale .. -0.05 .. 1.0 ]
+            |> List.tryFind (fun k -> contentBottom (baseScale * k) <= height - TouchContinueReserve)
+            |> Option.defaultValue 1.0
+            |> (*) baseScale
     let struct (bigSize, medSize, smallSize) = mkFonts scale
 
     let title = if isFinal then "FINAL STANDINGS" else "LEAGUE STANDINGS"
-    drawCentered ctx bigSize width (height * 0.04) title goalFlashColor
+    drawCentered ctx bigSize width (titleYAt scale) title goalFlashColor
 
     // Column headers
     let tableX = width * 0.04
-    let headerY = height * 0.14
-    let rowH = smallSize * 1.7
+    let headerY = headerYAt scale
+    let rowH = rowHAt scale
     let nameW = width * 0.38
 
     let colPositions =
@@ -535,7 +645,11 @@ let drawLeagueStandings (ctx: obj) width height (standings: (int * TeamStats) ar
         let winnerStr =
             $"{teamNames.[winnerIdx]} WINS THE LEAGUE!  ({winnerStats.Points} pts)"
 
-        drawCentered ctx (max 14.0 (14.0 * scale)) width (height * 0.88) winnerStr goalFlashColor
+        // Touch: right under the table, clear of the CONTINUE button
+        let winnerY =
+            if touch then dataY + float standings.Length * rowH + winnerSizeAt scale * 0.4
+            else height * 0.88
+        drawCentered ctx (winnerSizeAt scale) width winnerY winnerStr goalFlashColor
 
     let instrStr =
         if isFinal then
@@ -543,7 +657,8 @@ let drawLeagueStandings (ctx: obj) width height (standings: (int * TeamStats) ar
         else
             "Press SPACE to continue"
 
-    drawCentered ctx smallSize width (height * 0.94) instrStr grayColor
+    if not touch then
+        drawCentered ctx smallSize width (height * 0.94) instrStr grayColor
 
 // ─── Menu Screen ──────────────────────────────────────────────────────
 
@@ -594,10 +709,10 @@ let drawMenu (ctx: obj) width height selectedTeam1 selectedTeam2 activeColumn fa
             // is, reflecting the current fast-human/hard-mode settings
             let labelW = measureWidth ctx smallSize label
             let spd = displayedTeamSpeed fastHuman hardMode i
-            drawText ctx smallSize $" (speed {spd})" (colX + 4.0 + labelW) ty (Color(105, 105, 125))
+            drawText ctx smallSize $" (speed {spd})" (colX + 4.0 + labelW) ty speedHintColor
 
-    drawColumn col1X "TEAM 1 (LEFT)" team1Color selectedTeam1 (activeColumn = 0)
-    drawColumn col2X "TEAM 2 (RIGHT)" team2Color selectedTeam2 (activeColumn = 1)
+    drawColumn col1X "TEAM 1 (LEFT)" (teamColor false fastHuman hardMode selectedTeam1) selectedTeam1 (activeColumn = 0)
+    drawColumn col2X "TEAM 2 (RIGHT)" (teamColor true fastHuman hardMode selectedTeam2) selectedTeam2 (activeColumn = 1)
 
     // Instructions
     let fastStr = if fastHuman then "ON" else "OFF"
@@ -637,8 +752,8 @@ let private contentScale (w: float) (h: float) =
 let hudHeight (width: float) (height: float) = HudHeight * contentScale width height
 
 /// `hudInset` is passed to drawHud: how far the team names and scores stay in
-/// from the side edges.
-let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) leagueMode hudInset =
+/// from the side edges. `fastHuman` and `hardMode` set the speed class colours.
+let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) leagueMode hudInset fastHuman hardMode =
     let w = width
     let h = height
 
@@ -658,6 +773,8 @@ let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) league
     saveCtx ctx
     translateCtx ctx offX offY
 
+    let team1Color = teamColor false fastHuman hardMode gs.Team1Idx
+    let team2Color = teamColor true fastHuman hardMode gs.Team2Idx
     drawRink ctx sx sy team1Color team2Color
 
     // Ice trail marks (drawn on ice, under players and puck)
@@ -718,11 +835,12 @@ let renderFrame (ctx: obj) (gs: GameState) (width: float) (height: float) league
 
     // HUD (drawn in canvas space, spanning the full width at the bottom edge)
     let rinkBottom = h - hudH - 2.0
-    drawHud ctx gs sx sy rinkBottom w hudInset
+    drawHud ctx gs sx sy rinkBottom w hudInset fastHuman hardMode
 
     // Overlays
     drawGoalFlash ctx gs w h
     drawPeriodFlash ctx gs w h
 
     if not gs.Playing && gs.ClockSeconds >= gs.PeriodLength then
-        drawGameOver ctx gs w h leagueMode
+        // Only the touch layout insets the HUD texts, so this means "touch"
+        drawGameOver ctx gs w h leagueMode (hudInset > 0.0)

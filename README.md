@@ -61,6 +61,22 @@ Hold the shoot key longer for a harder shot. A quick tap gives a weaker pass.
 
 Set a team to **HUMAN PLAYER** for keyboard control. Both teams can be human or CPU.
 
+## Team colours
+
+The jersey colour tells a team's side and how fast it skates:
+
+| Speed class | Team 1 (left) | Team 2 (right) |
+|-------------|---------------|----------------|
+| Fastest     | Red           | Blue           |
+| Medium      | Orange        | Yellow         |
+| Slowest     | Red-purple    | Green          |
+
+The classes come from the CPU teams' speeds as the menu shows them (fastest
+value, slowest value, anything between), and the Human Player is placed among
+them by its own speed. Hard mode speeds every CPU team up alike, so their
+classes stay, but the fast Human Player drops to medium. The two sides never
+share a colour.
+
 ## Touch (phones / tablets)
 
 On touch devices the game switches to a touch layout (landscape; in portrait
@@ -81,9 +97,12 @@ The web build is an installable app (web app manifest + offline service
 worker). On Android Chrome use *Install app* / *Add to Home screen*: it then
 launches fullscreen in landscape and starts offline after one online launch.
 On iPhone/iPad use Safari's *Share → Add to Home Screen*. Desktop Chrome/Edge
-offer the install button in the address bar. The service worker is only
-registered in production builds (`npm run build`), not under the Vite dev
-server.
+offer the install button in the address bar. On touch devices the portrait
+"Turn your device sideways" screen also offers it: an *Install as app* button
+where the browser supports one, the *Add to Home Screen* steps on an iPhone
+(whose Safari can't show a web page full screen otherwise). The service
+worker is only registered in production builds (`npm run build`), not under
+the Vite dev server.
 
 ## Credits
 
