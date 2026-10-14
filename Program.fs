@@ -392,7 +392,7 @@ type HockeyGame() as this =
                 app.GamepadEnabled
 
         | Playing ->
-            renderFrame spriteBatch gs w h false
+            renderFrame spriteBatch gs w h false app.FastHuman app.HardMode
 
             if app.Paused then
                 drawPauseOverlay spriteBatch fw fh
@@ -408,12 +408,14 @@ type HockeyGame() as this =
                     fh
                     (league.CurrentRound + 1)
                     league.Schedule.Length
-                    teamNames.[t1]
-                    teamNames.[t2]
+                    t1
+                    t2
+                    app.FastHuman
+                    app.HardMode
             | None -> ()
 
         | LeaguePlaying ->
-            renderFrame spriteBatch gs w h true
+            renderFrame spriteBatch gs w h true app.FastHuman app.HardMode
 
             if app.Paused then
                 drawPauseOverlay spriteBatch fw fh
