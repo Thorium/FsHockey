@@ -247,10 +247,18 @@ type HockeyForm() as this =
             override _.OnPaintBackground _ = () }
 
     let timer = new Timer(Interval = 1000 / GameFps)
+    let mutable mousePos = PointF(-1.0f, -1.0f)
 
     do
         this.Text <-
             "The FS Hockey League \u2014 By Tuomas Hietanen 2026"
+
+        // Window / taskbar icon: the app icon embedded in the assembly
+        match Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream "Icon.ico" with
+        | null -> ()
+        | stream ->
+            use s = stream
+            this.Icon <- new Icon(s)
 
         this.ClientSize <- Size(960, 620)
         this.StartPosition <- FormStartPosition.CenterScreen
@@ -276,12 +284,24 @@ type HockeyForm() as this =
         setStyle ControlStyles.UserPaint true
 
         panel.Paint.Add(fun e -> this.OnRender e.Graphics)
+        panel.MouseMove.Add(fun e -> mousePos <- PointF(float32 e.X, float32 e.Y))
+        // Menu clicks run the action of the button under the mouse
+        panel.MouseDown.Add(fun e ->
+            if e.Button = MouseButtons.Left && app.Mode = Menu then
+                let w, h = float32 panel.ClientSize.Width, float32 panel.ClientSize.Height
+                match menuHit (this.MenuElements()) w h (PointF(float32 e.X, float32 e.Y)) with
+                | Some action -> this.MenuAction action
+                | None -> ())
         timer.Tick.Add(fun _ -> this.OnTick())
         this.KeyDown.Add(fun e -> this.OnKey(e, true))
         this.KeyUp.Add(fun e -> this.OnKey(e, false))
         timer.Start()
 
     member _.OnTick() =
+        // No Sticky Keys dialog from five presses of player 1's Shift: Windows'
+        // accessibility shortcuts are off while the game window is in front
+        ShortcutKeys.sync ()
+
         match app.Mode with
         | Playing
         | LeaguePlaying when not app.Paused ->
@@ -317,18 +337,7 @@ type HockeyForm() as this =
             let fh = float32 h
 
             match app.Mode with
-            | Menu ->
-                drawMenu
-                    g
-                    fw
-                    fh
-                    app.SelectedTeam1
-                    app.SelectedTeam2
-                    app.ActiveColumn
-                    app.FastHuman
-                    app.HardMode
-                    app.FivePlayerMode
-                    app.GamepadEnabled
+            | Menu -> drawMenu g fw fh (this.MenuElements()) mousePos
 
             | Playing ->
                 renderFrame g gs w h false app.FastHuman app.HardMode
@@ -387,7 +396,38 @@ type HockeyForm() as this =
 
     // ─── Menu ─────────────────────────────────────────────────────
 
-    member _.HandleMenuKey key =
+    /// The menu screen as laid out for the current settings.
+    member _.MenuElements() =
+        menuLayout
+            app.SelectedTeam1
+            app.SelectedTeam2
+            app.ActiveColumn
+            app.FastHuman
+            app.HardMode
+            app.FivePlayerMode
+            app.GamepadEnabled
+
+    /// A menu action, from its key or a click on its button.
+    member _.MenuAction(action: string) =
+        match action with
+        | "exhibition" -> startExhibitionMatch app
+        | "league" ->
+            app.League <- Some(createLeagueState app.SelectedTeam1)
+            app.Mode <- LeagueMatchup
+        | "fast" -> app.FastHuman <- not app.FastHuman
+        | "hard" -> app.HardMode <- not app.HardMode
+        | "players" -> app.FivePlayerMode <- not app.FivePlayerMode
+        | "gamepad" -> app.GamepadEnabled <- not app.GamepadEnabled
+        // A team row: pick that team and make its column the active one
+        | _ when action.StartsWith "pick:" ->
+            match action.Split ':' with
+            | [| _; col; team |] ->
+                app.ActiveColumn <- int col
+                if int col = 0 then app.SelectedTeam1 <- int team else app.SelectedTeam2 <- int team
+            | _ -> ()
+        | _ -> ()
+
+    member this.HandleMenuKey key =
         match key with
         | Keys.Tab -> app.ActiveColumn <- 1 - app.ActiveColumn
 
@@ -401,16 +441,12 @@ type HockeyForm() as this =
                 app.SelectedTeam2 <- (app.SelectedTeam2 + delta + NumTeams) % NumTeams
 
         | Keys.Enter
-        | Keys.Return -> startExhibitionMatch app
-
-        | Keys.L ->
-            app.League <- Some(createLeagueState app.SelectedTeam1)
-            app.Mode <- LeagueMatchup
-
-        | Keys.F -> app.FastHuman <- not app.FastHuman
-        | Keys.H -> app.HardMode <- not app.HardMode
-        | Keys.D5 -> app.FivePlayerMode <- not app.FivePlayerMode
-        | Keys.G -> app.GamepadEnabled <- not app.GamepadEnabled
+        | Keys.Return -> this.MenuAction "exhibition"
+        | Keys.L -> this.MenuAction "league"
+        | Keys.F -> this.MenuAction "fast"
+        | Keys.H -> this.MenuAction "hard"
+        | Keys.D5 -> this.MenuAction "players"
+        | Keys.G -> this.MenuAction "gamepad"
 
         | Keys.Escape -> Application.Exit()
 
@@ -496,6 +532,9 @@ type HockeyForm() as this =
 let main _ =
     Application.EnableVisualStyles()
     Application.SetCompatibleTextRenderingDefault false
-    use form = new HockeyForm()
-    Application.Run form
-    0
+    try
+        use form = new HockeyForm()
+        Application.Run form
+        0
+    finally
+        ShortcutKeys.restore ()
