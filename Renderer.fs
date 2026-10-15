@@ -643,74 +643,152 @@ let drawLeagueStandings (b: RenderBuffer2D) (font: SpriteFont) (width: float32) 
 
 // ─── Menu Screen ──────────────────────────────────────────────────────
 
-let drawMenu (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: float32) selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer gamepadOn =
+// The menu is laid out as data — frames, texts and buttons on a 640x420
+// virtual screen, scaled to fit and centred — so drawing and mouse
+// hit-testing share the same rectangles. Each button carries the action it
+// runs (the same actions the menu keys run in Program.fs).
+
+/// Menu text sizes, in virtual pixels.
+type MenuTextSize =
+    | Title
+    | Heading
+    | Body
+    | Fine
+
+type MenuButtonKind =
+    /// Team row in a column list (selected = yellow on blue)
+    | TeamRow of selected: bool
+    | Exhibition
+    | League
+    /// On/off option (on = blue)
+    | Toggle of on: bool
+
+type MenuElement =
+    | Frame of rect: Rectangle * fill: Color * border: Color
+    | Text of x: float32 * y: float32 * text: string * color: Color * size: MenuTextSize * centred: bool
+    | MenuButton of rect: Rectangle * text: string * hint: string * action: string * kind: MenuButtonKind
+
+[<Literal>]
+let private MenuW = 640.0f
+
+[<Literal>]
+let private MenuH = 420.0f
+
+/// Virtual-to-screen scale and offset of the menu.
+let private menuTransform (width: float32) (height: float32) =
+    let s = min (width / MenuW) (height / MenuH)
+    struct (s, (width - MenuW * s) / 2.0f, (height - MenuH * s) / 2.0f)
+
+let private menuGray = Color.rgb 140uy 140uy 140uy
+let private menuBlue = Color.rgb 144uy 192uy 255uy
+let private leagueGold = Color.rgb 255uy 220uy 80uy
+
+/// The menu screen, in virtual pixels.
+let menuLayout selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer gamepadOn : MenuElement list =
+    let rowH = 16
+    let listY = 92
+    let column (col: int) (x: int) (selected: int) =
+        [ if activeColumn = col then
+              yield Frame(Rectangle(x - 6, 62, 302, listY - 62 + NumTeams * rowH + 6), Color.create 255uy 255uy 255uy 8uy, Color.rgb 58uy 58uy 88uy)
+          let head = if col = 0 then "TEAM 1 (LEFT)" else "TEAM 2 (RIGHT)"
+          yield Text(float32 x, 68.0f, head, teamColor (col = 1) fastHuman hardMode selected, Heading, false)
+          for i in 0 .. NumTeams - 1 do
+              let speed = $"speed {displayedTeamSpeed fastHuman hardMode i}"
+              yield MenuButton(Rectangle(x, listY + i * rowH, 290, rowH - 1), teamNames[i], speed, $"pick:{col}:{i}", TeamRow(i = selected)) ]
+    let toggles =
+        [ (if fivePlayer then "6 v 6" else "3 v 3"), "5", "players", true
+          "Fast human", "F", "fast", fastHuman
+          "Hard CPU", "H", "hard", hardMode
+          "Gamepads", "G", "gamepad", gamepadOn ]
+    let tableY = 332.0f
+    let cell (x: float32) (row: int) (text: string) (color: Color) = Text(x, tableY + float32 row * 11.0f, text, color, Fine, false)
+    [ yield Text(MenuW / 2.0f, 14.0f, "THE FS HOCKEY LEAGUE", goalFlashColor, Title, true)
+      yield Text(MenuW / 2.0f, 44.0f, "Tuomas Hietanen, 2026", menuGray, Fine, true)
+      yield! column 0 26 selectedTeam1
+      yield! column 1 324 selectedTeam2
+      yield MenuButton(Rectangle(20, 262, 294, 30), "EXHIBITION", "Enter", "exhibition", Exhibition)
+      yield MenuButton(Rectangle(326, 262, 294, 30), "LEAGUE", "L", "league", League)
+      for k, (text, key, action, on) in List.indexed toggles do
+          yield MenuButton(Rectangle(20 + k * 152, 300, 144, 22), text, key, action, Toggle on)
+      yield cell 150.0f 0 "Skate" menuGray
+      yield cell 330.0f 0 "Shoot" menuGray
+      for r, (who, skate, shoot) in List.indexed [ "Player 1", "Arrow keys", "RShift / Enter"; "Player 2", "W A S D", "Space / Tab"; "Gamepads", "Stick / D-pad", "A / B / RT" ] do
+          yield cell 40.0f (r + 1) who Color.White
+          yield cell 150.0f (r + 1) skate Color.White
+          yield cell 330.0f (r + 1) shoot Color.White
+      yield Text(MenuW / 2.0f, 384.0f, "Pick HUMAN PLAYER for keyboard control - hold shoot for a harder shot", menuGray, Fine, true)
+      yield Text(MenuW / 2.0f, 398.0f, "Up/Down select - Tab switch column - P pause - Esc quit - F11 fullscreen", menuGray, Fine, true) ]
+
+/// The action of the menu button under a screen-pixel point, if any.
+let menuHit (elements: MenuElement list) (width: float32) (height: float32) (screen: Vector2) : string option =
+    let struct (s, ox, oy) = menuTransform width height
+    let p = Point(int ((screen.X - ox) / s), int ((screen.Y - oy) / s))
+    elements |> List.tryPick (function
+        | MenuButton(r, _, _, action, _) when r.Contains p -> Some action
+        | _ -> None)
+
+/// A colour moved towards white by t (0..1).
+let private lighten (c: Color) (t: float32) =
+    let mix (x: byte) = byte (float32 x + (255.0f - float32 x) * t)
+    Color.create (mix c.R) (mix c.G) (mix c.B) c.A
+
+let drawMenu (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: float32) (elements: MenuElement list) (mouse: Vector2) =
     fillRect b 0.0f 0.0f width height (Color.rgb 10uy 10uy 30uy) LBg
-
-    let scale = min (width / OrigW) (height / OrigH)
-    let struct (bigSize, medSize, smallSize) = mkFonts scale
-    let menuGray = Color.rgb 140uy 140uy 140uy
-
-    // Title + subtitle
-    drawCentered b font bigSize width (height * 0.06f) "THE FS HOCKEY LEAGUE" goalFlashColor LRink
-
-    let sub = "Tuomas Hietanen, 2026"
-    drawCentered b font smallSize width (height * 0.06f + bigSize * 1.4f) sub menuGray LRink
-
-    // Two-column team selection
-    let colW = width * 0.42f
-    let col1X = width * 0.04f
-    let col2X = width * 0.54f
-    let listY = height * 0.22f
-
-    let drawColumn colX (headerText: string) (headerColor: Color) selectedIdx isActive =
-        drawText b font medSize colX listY headerText headerColor LTrail
-
-        if isActive then
-            let boxH = medSize * 1.3f + float32 NumTeams * smallSize * 1.6f + 6.0f
-            drawRect b (colX - 3.0f) (listY - 2.0f) colW boxH 1.5f headerColor LRink
-
-        for i in 0 .. NumTeams - 1 do
-            let ty = listY + medSize * 1.5f + float32 i * smallSize * 1.6f
-            let isSelected = (i = selectedIdx)
-
-            if isSelected then
-                fillRect b colX (ty - 1.0f) (colW - 6.0f) (smallSize * 1.4f) (Color.rgb 40uy 60uy 100uy) LRink
-
-            let color = if isSelected then goalFlashColor else white
-            let prefix = if isSelected then "> " else "  "
-            let label = $"{prefix}{teamNames.[i]}"
-            drawText b font smallSize (colX + 4.0f) ty label color LTrail
-
-            // Team skating speed, dimmed — a hint of how hard a CPU opponent
-            // is, reflecting the current fast-human/hard-mode settings
-            let struct (labelW, _) = measureText font smallSize label
-            let spd = displayedTeamSpeed fastHuman hardMode i
-            drawText b font smallSize (colX + 4.0f + labelW) ty $" (speed {spd})" speedHintColor LTrail
-
-    drawColumn col1X "TEAM 1 (LEFT)" (teamColor false fastHuman hardMode selectedTeam1) selectedTeam1 (activeColumn = 0)
-    drawColumn col2X "TEAM 2 (RIGHT)" (teamColor true fastHuman hardMode selectedTeam2) selectedTeam2 (activeColumn = 1)
-
-    // Instructions
-    let fastStr = if fastHuman then "ON" else "OFF"
-    let hardStr = if hardMode then "ON" else "OFF"
-    let fiveStr = if fivePlayer then "6v6" else "3v3"
-    let padStr = if gamepadOn then "ON" else "OFF"
-
-    let instrLines =
-        [| "UP/DOWN = Select Team  |  TAB = Switch Column"
-           "ENTER = Start Game  |  L = Play League  |  P = Pause  |  ESC = Quit"
-           $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
-           $"G = Gamepad [{padStr}]  |  F11 = Toggle Fullscreen"
-           "Hold shoot key longer for harder shot, quick tap for a pass"
-           "Player 1: Arrow Keys + RShift/Enter, or Gamepad 1"
-           "Player 2: WASD + Space/Tab, or Gamepad 2"
-           "(Set team to HUMAN PLAYER for keyboard control)" |]
-
-    let baseY = height * 0.7f
-
-    instrLines
-    |> Array.iteri (fun i line ->
-        drawCentered b font smallSize width (baseY + float32 i * smallSize * 1.3f) line menuGray LTrail)
+    let struct (s, ox, oy) = menuTransform width height
+    let sizes = [ Title, 26.0f; Heading, 15.0f; Body, 13.0f; Fine, 10.0f ]
+    // The baked sprite font draws larger per pixel size than the other front
+    // ends' fonts; 0.75 matches their text sizes
+    let px size = max 6.0f (0.75f * s * (sizes |> List.find (fun (k, _) -> k = size) |> snd))
+    let rx (r: Rectangle) = struct (ox + float32 r.X * s, oy + float32 r.Y * s, float32 r.Width * s, float32 r.Height * s)
+    let hover (r: Rectangle) =
+        let struct (x, y, w, h) = rx r
+        mouse.X >= x && mouse.X < x + w && mouse.Y >= y && mouse.Y < y + h
+    // Fills on LRink, text on LTrail: text always lands on top of its button
+    for e in elements do
+        match e with
+        | Frame(r, fill, border) ->
+            let struct (x, y, w, h) = rx r
+            fillRect b x y w h fill LRink
+            drawRect b x y w h (max 1.0f s) border LRink
+        | Text(x, y, text, color, size, centred) ->
+            let struct (tw, _) = measureText font (px size) text
+            let tx = if centred then ox + x * s - tw / 2.0f else ox + x * s
+            drawText b font (px size) tx (oy + y * s) text color LTrail
+        | MenuButton(r, text, hint, _, kind) ->
+            let struct (x, y, w, h) = rx r
+            let lit = hover r
+            let fill, border, ink =
+                match kind with
+                | TeamRow true -> Color.rgb 42uy 58uy 88uy, Color.rgb 42uy 58uy 88uy, goalFlashColor
+                | TeamRow false -> (if lit then Color.create 255uy 255uy 255uy 18uy else Color.Transparent), Color.Transparent, Color.White
+                | Exhibition -> Color.rgb 140uy 184uy 255uy, Color.rgb 192uy 216uy 255uy, Color.rgb 16uy 24uy 48uy
+                | League -> leagueGold, leagueGold, Color.rgb 48uy 36uy 0uy
+                | Toggle on -> Color.rgb 38uy 38uy 58uy, (if on then menuBlue else Color.rgb 80uy 80uy 112uy), (if on then menuBlue else Color.rgb 224uy 224uy 232uy)
+            let fill =
+                match kind with
+                | TeamRow _ -> fill
+                | _ when lit -> lighten fill 0.15f
+                | _ -> fill
+            if fill.A > 0uy then fillRect b x y w h fill LRink
+            if border.A > 0uy then drawRect b x y w h (max 1.0f s) border LRink
+            match kind with
+            | TeamRow _ ->
+                // Name on the left, the dimmed speed hint on the right
+                let size = px Body
+                let struct (_, th) = measureText font size text
+                let ty = y + (h - th) / 2.0f
+                drawText b font size (x + 6.0f * s) ty text ink LTrail
+                let struct (hw, _) = measureText font size hint
+                drawText b font size (x + w - hw - 6.0f * s) ty hint speedHintColor LTrail
+            | _ ->
+                let size = px (match kind with Exhibition | League -> Heading | TeamRow _ | Toggle _ -> Body)
+                let hintSize = px Fine
+                let struct (tw, th) = measureText font size text
+                let struct (hw, hh) = measureText font hintSize hint
+                let tx = x + (w - tw - hw - 6.0f * s) / 2.0f
+                drawText b font size tx (y + (h - th) / 2.0f) text ink LTrail
+                let hintInk = match kind with Exhibition | League -> Color.create ink.R ink.G ink.B 180uy | TeamRow _ | Toggle _ -> menuGray
+                drawText b font hintSize (tx + tw + 6.0f * s) (y + (h - hh) / 2.0f) hint hintInk LTrail
 
 // ─── Main Render ──────────────────────────────────────────────────────
 

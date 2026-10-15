@@ -36,6 +36,22 @@ let private toggleFullscreen () =
 
         gdm.ApplyChanges()
 
+// ─── Menu ─────────────────────────────────────────────────────────────
+
+/// The menu screen as laid out for the model's settings.
+let private menuElements (m: Model) =
+    menuLayout m.SelectedTeam1 m.SelectedTeam2 m.ActiveColumn m.FastHuman m.HardMode m.FivePlayerMode m.GamepadEnabled
+
+/// Clicks: the menu action under a window-pixel point (installed as
+/// App.menuHitHook).
+let private menuHitAt (m: Model) (pos: System.Numerics.Vector2) =
+    match graphicsManager with
+    | ValueNone -> ValueNone
+    | ValueSome gdm ->
+        let pp = gdm.GraphicsDevice.PresentationParameters
+        menuHit (menuElements m) (float32 pp.BackBufferWidth) (float32 pp.BackBufferHeight) (Vector2(pos.X, pos.Y))
+        |> ValueOption.ofOption
+
 // ─── View ─────────────────────────────────────────────────────────────
 
 let private view (ctx: GameContext) (m: Model) (buffer: RenderBuffer2D) =
@@ -46,8 +62,7 @@ let private view (ctx: GameContext) (m: Model) (buffer: RenderBuffer2D) =
     let h = float32 ctx.WindowHeight
 
     match m.Mode with
-    | Menu ->
-        drawMenu buffer font w h m.SelectedTeam1 m.SelectedTeam2 m.ActiveColumn m.FastHuman m.HardMode m.FivePlayerMode m.GamepadEnabled
+    | Menu -> drawMenu buffer font w h (menuElements m) (Vector2(m.MousePos.X, m.MousePos.Y))
 
     | Playing ->
         renderFrame buffer font m.Gs w h false m.FastHuman m.HardMode
@@ -86,8 +101,17 @@ let private view (ctx: GameContext) (m: Model) (buffer: RenderBuffer2D) =
 let private subscriptions (ctx: GameContext) (m: Model) : Sub<Msg> =
     Sub.batch
         [ InputMapper.subscribeStatic inputMap InputChanged ctx
+          Mouse.listen MouseChanged ctx
           if m.GamepadEnabled then
               Gamepad.listen PadChanged ctx ]
+
+// ─── Windows accessibility shortcuts ─────────────────────────────────
+// No Sticky Keys dialog from five presses of player 1's RShift: once per
+// frame the shortcuts follow whether the game window is in front.
+
+let private shortcutKeysRenderer: IRenderer<Model> =
+    { new IRenderer<Model> with
+        member _.Draw(_ctx, _model, _gameTime) = ShortcutKeys.sync () }
 
 // ─── Graphics Smoke Test (`--graphics-test <outDir>`) ─────────────────
 // Self-driving capture mode for visual regression checks: an autopilot
@@ -165,6 +189,7 @@ let private screenshotRenderer (outDir: string) : IRenderer<Model> =
 [<EntryPoint>]
 let main argv =
     toggleFullscreenHook <- toggleFullscreen
+    menuHitHook <- menuHitAt
 
     let graphicsTestDir =
         match argv with
@@ -188,12 +213,13 @@ let main argv =
             { cfg with
                 Width = 960
                 Height = 620
-                Title = "The FS Hockey League — By Tuomas Hietanen 2026"
+                Title = "The FS Hockey League - By Tuomas Hietanen 2026"
                 TargetFPS = 60 })
         |> Program.withInput
         |> Program.withSubscription subscriptions
         |> Program.withFixedStep fixedStepConfig
         |> Program.withRenderer (fun () -> Renderer2D.create view)
+        |> Program.withRenderer (fun () -> shortcutKeysRenderer)
         |> withTestHarness
         |> MonoGameProgram.ofProgram
         |> MonoGameProgram.withConfig (fun (game, gdm) ->
@@ -203,6 +229,9 @@ let main argv =
             game.Window.AllowUserResizing <- true
             graphicsManager <- ValueSome gdm)
 
-    use game = new MiboGame<Model, Msg>(program)
-    game.Run()
-    0
+    try
+        use game = new MiboGame<Model, Msg>(program)
+        game.Run()
+        0
+    finally
+        ShortcutKeys.restore ()

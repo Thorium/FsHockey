@@ -151,17 +151,25 @@ type Model =
       League: LeagueState option
       Input: ActionState<HockeyAction>
       Pad1: PadState
-      Pad2: PadState }
+      Pad2: PadState
+      /// Mouse position in window pixels, for menu hover highlights
+      MousePos: System.Numerics.Vector2 }
 
 [<Struct>]
 type Msg =
     | PhysicsStep of dt: float32
     | InputChanged of inputs: ActionState<HockeyAction>
     | PadChanged of delta: GamepadDelta
+    | MouseChanged of mouse: MouseDelta
 
 /// Backend hook installed by the entry point (no-op when headless): F11
 /// fullscreen needs the GraphicsDeviceManager, which Mibo.Core cannot see.
 let mutable toggleFullscreenHook: unit -> unit = ignore
+
+/// Backend hook installed by the entry point (no menu clicks when headless):
+/// the menu action of the button under a window-pixel point. The menu layout
+/// lives with the renderer, which this core cannot see.
+let mutable menuHitHook: Model -> System.Numerics.Vector2 -> string voption = fun _ _ -> ValueNone
 
 // ─── Match Setup Helpers ──────────────────────────────────────────────
 
@@ -258,7 +266,8 @@ let initWith (rng: System.Random) (_ctx: GameContext) : struct (Model * Cmd<Msg>
       League = None
       Input = ActionState.empty
       Pad1 = PadState.empty
-      Pad2 = PadState.empty },
+      Pad2 = PadState.empty
+      MousePos = System.Numerics.Vector2(-1.0f, -1.0f) },
     Cmd.none
 
 let init (ctx: GameContext) = initWith (System.Random()) ctx
@@ -307,6 +316,25 @@ let private handleMenu (started: Set<HockeyAction>) (m: Model) : struct (Model *
         { m with League = Some(createLeagueState m.Gs.Rng m.SelectedTeam1); Mode = LeagueMatchup }, Cmd.none
     elif started.Contains Back then m, Cmd.signalExit
     else m, Cmd.none
+
+/// A menu action from a click on its button (the keys run the same actions
+/// through handleMenu).
+let private menuAction (action: string) (m: Model) : struct (Model * Cmd<Msg>) =
+    match action with
+    | "exhibition" -> startExhibitionMatch m, Cmd.none
+    | "league" -> { m with League = Some(createLeagueState m.Gs.Rng m.SelectedTeam1); Mode = LeagueMatchup }, Cmd.none
+    | "fast" -> { m with FastHuman = not m.FastHuman }, Cmd.none
+    | "hard" -> { m with HardMode = not m.HardMode }, Cmd.none
+    | "players" -> { m with FivePlayerMode = not m.FivePlayerMode }, Cmd.none
+    | "gamepad" -> { m with GamepadEnabled = not m.GamepadEnabled; Pad1 = PadState.empty; Pad2 = PadState.empty }, Cmd.none
+    // A team row: pick that team and make its column the active one
+    | _ when action.StartsWith "pick:" ->
+        match action.Split ':' with
+        | [| _; col; team |] ->
+            let m = { m with ActiveColumn = int col }
+            (if int col = 0 then { m with SelectedTeam1 = int team } else { m with SelectedTeam2 = int team }), Cmd.none
+        | _ -> m, Cmd.none
+    | _ -> m, Cmd.none
 
 let private handlePlaying (started: Set<HockeyAction>) (m: Model) : struct (Model * Cmd<Msg>) =
     let m =
@@ -402,6 +430,15 @@ let update (msg: Msg) (m: Model) : struct (Model * Cmd<Msg>) =
         | 0 -> { m with Pad1 = PadState.apply delta m.Pad1 }, Cmd.none
         | 1 -> { m with Pad2 = PadState.apply delta m.Pad2 }, Cmd.none
         | _ -> m, Cmd.none
+    | MouseChanged mouse ->
+        let m = { m with MousePos = mouse.Position }
+        let clicked = mouse.Buttons.Pressed |> Array.contains MouseButtonCode.Left
+        if clicked && m.Mode = Menu then
+            match menuHitHook m mouse.Position with
+            | ValueSome action -> menuAction action m
+            | ValueNone -> m, Cmd.none
+        else
+            m, Cmd.none
 
 /// Fixed-step configuration shared by the MonoGame host and headless tests.
 let fixedStepConfig: FixedStepConfig<Msg> =
