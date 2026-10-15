@@ -208,7 +208,7 @@ type HockeyGame() as this =
 
     do
         this.Window.Title <-
-            "The FS Hockey League \u2014 By Tuomas Hietanen 2026"
+            "The FS Hockey League - By Tuomas Hietanen 2026"
 
         graphics.PreferredBackBufferWidth <- 960
         graphics.PreferredBackBufferHeight <- 620
