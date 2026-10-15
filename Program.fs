@@ -184,6 +184,15 @@ let private mergeInput (a: Input) (b: Input) : Input =
       Down = a.Down || b.Down
       Fire = a.Fire || b.Fire }
 
+/// Menu keys and the menu actions they run (the menu buttons run the same).
+let private menuKeys =
+    [ Keys.Enter, "exhibition"
+      Keys.L, "league"
+      Keys.F, "fast"
+      Keys.H, "hard"
+      Keys.D5, "players"
+      Keys.G, "gamepad" ]
+
 // ─── Main Game (MonoGame) ─────────────────────────────────────────────
 
 type HockeyGame() as this =
@@ -194,6 +203,8 @@ type HockeyGame() as this =
     let app = createAppState ()
     let gs = app.GameState
     let mutable prevKeyState = KeyboardState()
+    let mutable prevMouse = MouseState()
+    let mutable mousePos = Vector2(-1.0f, -1.0f)
 
     do
         this.Window.Title <-
@@ -236,7 +247,41 @@ type HockeyGame() as this =
     member private _.IsKeyPressed(key: Keys, current: KeyboardState) =
         current.IsKeyDown(key) && prevKeyState.IsKeyUp(key)
 
+    /// The menu screen as laid out for the current settings.
+    member private _.MenuElements() =
+        menuLayout
+            app.SelectedTeam1
+            app.SelectedTeam2
+            app.ActiveColumn
+            app.FastHuman
+            app.HardMode
+            app.FivePlayerMode
+            app.GamepadEnabled
+
+    /// A menu action, from its key or a click on its button.
+    member private _.MenuAction(action: string) =
+        match action with
+        | "exhibition" -> startExhibitionMatch app
+        | "league" ->
+            app.League <- Some(createLeagueState app.SelectedTeam1)
+            app.Mode <- LeagueMatchup
+        | "fast" -> app.FastHuman <- not app.FastHuman
+        | "hard" -> app.HardMode <- not app.HardMode
+        | "players" -> app.FivePlayerMode <- not app.FivePlayerMode
+        | "gamepad" -> app.GamepadEnabled <- not app.GamepadEnabled
+        // A team row: pick that team and make its column the active one
+        | _ when action.StartsWith "pick:" ->
+            match action.Split ':' with
+            | [| _; col; team |] ->
+                app.ActiveColumn <- int col
+                if int col = 0 then app.SelectedTeam1 <- int team else app.SelectedTeam2 <- int team
+            | _ -> ()
+        | _ -> ()
+
     override this.Update(gameTime) =
+        // No Sticky Keys dialog from five presses of player 1's RShift: Windows'
+        // accessibility shortcuts are off while the game window is in front
+        ShortcutKeys.sync ()
         let ks = Keyboard.GetState()
 
         // F11 toggles fullscreen (works in any mode). Fullscreen uses the
@@ -256,6 +301,11 @@ type HockeyGame() as this =
 
             graphics.ApplyChanges()
 
+        let ms = Mouse.GetState()
+        mousePos <- Vector2(float32 ms.X, float32 ms.Y)
+        let clicked = ms.LeftButton = ButtonState.Pressed && prevMouse.LeftButton = ButtonState.Released
+        prevMouse <- ms
+
         match app.Mode with
         | Menu ->
             if this.IsKeyPressed(Keys.Tab, ks) then
@@ -269,24 +319,15 @@ type HockeyGame() as this =
                 else
                     app.SelectedTeam2 <- (app.SelectedTeam2 + delta + NumTeams) % NumTeams
 
-            if this.IsKeyPressed(Keys.Enter, ks) then
-                startExhibitionMatch app
+            for key, action in menuKeys do
+                if this.IsKeyPressed(key, ks) then this.MenuAction action
 
-            if this.IsKeyPressed(Keys.L, ks) then
-                app.League <- Some(createLeagueState app.SelectedTeam1)
-                app.Mode <- LeagueMatchup
-
-            if this.IsKeyPressed(Keys.F, ks) then
-                app.FastHuman <- not app.FastHuman
-
-            if this.IsKeyPressed(Keys.H, ks) then
-                app.HardMode <- not app.HardMode
-
-            if this.IsKeyPressed(Keys.D5, ks) then
-                app.FivePlayerMode <- not app.FivePlayerMode
-
-            if this.IsKeyPressed(Keys.G, ks) then
-                app.GamepadEnabled <- not app.GamepadEnabled
+            // Clicks run the action of the button under the mouse
+            if clicked && this.IsActive then
+                let vp = graphics.GraphicsDevice.Viewport
+                match menuHit (this.MenuElements()) (float32 vp.Width) (float32 vp.Height) mousePos with
+                | Some action -> this.MenuAction action
+                | None -> ()
 
             if this.IsKeyPressed(Keys.Escape, ks) then
                 this.Exit()
@@ -378,18 +419,7 @@ type HockeyGame() as this =
         spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.NonPremultiplied)
 
         match app.Mode with
-        | Menu ->
-            drawMenu
-                spriteBatch
-                fw
-                fh
-                app.SelectedTeam1
-                app.SelectedTeam2
-                app.ActiveColumn
-                app.FastHuman
-                app.HardMode
-                app.FivePlayerMode
-                app.GamepadEnabled
+        | Menu -> drawMenu spriteBatch fw fh (this.MenuElements()) mousePos
 
         | Playing ->
             renderFrame spriteBatch gs w h false app.FastHuman app.HardMode
@@ -437,6 +467,9 @@ type HockeyGame() as this =
 
 [<EntryPoint>]
 let main _ =
-    use game = new HockeyGame()
-    game.Run()
-    0
+    try
+        use game = new HockeyGame()
+        game.Run()
+        0
+    finally
+        ShortcutKeys.restore ()
