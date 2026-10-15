@@ -18,14 +18,6 @@
 <body>
 <div id="root">
     <canvas id="screen" width="960" height="620" aria-label="The FS Hockey League game screen" role="img"></canvas>
-    <p class="hint">
-        <b>UP/DOWN</b> select team &middot; <b>TAB</b> switch column &middot;
-        <b>ENTER</b> start &middot; <b>L</b> league &middot; <b>F11</b> fullscreen
-    </p>
-    <p class="hint">
-        P1: <b>Arrows</b> + <b>RShift/Enter</b> &middot;
-        P2: <b>WASD</b> + <b>Space/Tab</b> (set a team to HUMAN PLAYER)
-    </p>
     <a class="github-link" href="https://github.com/" rel="noopener noreferrer" target="_blank">The FS Hockey League — F# + Fable</a>
 </div>
 
@@ -33,7 +25,7 @@
      + SHOOT per human team during a match, and CONTINUE on result screens.
      data-action buttons run one menu action per tap; data-key buttons hold
      that key while a finger is on them. -->
-<div id="touch-menu">
+<div class="game-menu" id="touch-menu">
     <h1>THE FS HOCKEY LEAGUE</h1>
     <div class="tm-row">
         <span class="tm-label">Team 1</span>
@@ -56,6 +48,41 @@
         <button class="tm-start" data-action="exhibition" type="button">EXHIBITION</button>
         <button class="tm-start" data-action="league" type="button">LEAGUE</button>
     </div>
+</div>
+
+<!-- Desktop layout (not body.touch): the menu for the mouse, each control
+     showing its keyboard shortcut. The team lists are filled in by Program.fs
+     from teamNames; clicking a team selects it for that column. -->
+<div class="game-menu" id="desk-menu">
+    <h1>THE FS HOCKEY LEAGUE</h1>
+    <div class="dm-teams">
+        <div class="dm-col" id="dm-col1">
+            <h2 class="dm-head" id="dm-head1">TEAM 1 (LEFT)</h2>
+            <div class="dm-list" id="dm-list1"></div>
+        </div>
+        <div class="dm-col" id="dm-col2">
+            <h2 class="dm-head" id="dm-head2">TEAM 2 (RIGHT)</h2>
+            <div class="dm-list" id="dm-list2"></div>
+        </div>
+    </div>
+    <div class="tm-row tm-starts">
+        <button class="tm-start" data-action="exhibition" type="button">EXHIBITION <kbd>Enter</kbd></button>
+        <button class="tm-start tm-league" data-action="league" type="button">LEAGUE <kbd>L</kbd></button>
+    </div>
+    <div class="tm-row tm-toggles">
+        <button class="tm-toggle" data-action="players" id="dm-players" type="button"><span>3 v 3</span> <kbd>5</kbd></button>
+        <button class="tm-toggle" data-action="fast" id="dm-fast" type="button">Fast human <kbd>F</kbd></button>
+        <button class="tm-toggle" data-action="hard" id="dm-hard" type="button">Hard CPU <kbd>H</kbd></button>
+        <button class="tm-toggle" data-action="gamepad" id="dm-gamepad" type="button">Gamepads <kbd>G</kbd></button>
+    </div>
+    <table class="dm-controls">
+        <tr><th></th><th>Skate</th><th>Shoot</th></tr>
+        <tr><td>Player 1</td><td>Arrow keys</td><td>RShift / Enter</td></tr>
+        <tr><td>Player 2</td><td>W A S D</td><td>Space / Tab</td></tr>
+        <tr><td>Gamepads</td><td>Stick / D-pad</td><td>A / B / RT</td></tr>
+    </table>
+    <p class="dm-footer">Pick HUMAN PLAYER for keyboard control · hold shoot for a harder shot ·
+        ↑ ↓ select · Tab switch column · P pause · Esc menu · F11 fullscreen</p>
 </div>
 
 <div id="touch-controls">

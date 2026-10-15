@@ -15,6 +15,7 @@ open Fable.Core
 open HockeyDemo.Physics
 open HockeyDemo.Game
 open HockeyDemo.Renderer
+open System.Collections.Generic
 
 // ─── DOM / JS interop (raw Emit, binding-version independent) ───────────
 [<Emit("document.getElementById($0)")>]
@@ -183,8 +184,8 @@ let inline matchOver (gs: GameState) =
 
 // ─── Input state ───────────────────────────────────────────────────────
 
-let private keys = System.Collections.Generic.HashSet<string>()
-let private prevKeys = System.Collections.Generic.HashSet<string>()
+let private keys = HashSet<string>()
+let private prevKeys = HashSet<string>()
 
 let private has (code: string) = keys.Contains code
 /// True only on the frame the key transitions from up to down.
@@ -412,9 +413,7 @@ let private render () =
     let fh = viewH
 
     match app.Mode with
-    | Menu when touchMode -> drawMenuBackdrop ctx fw fh
-    | Menu ->
-        drawMenu ctx fw fh app.SelectedTeam1 app.SelectedTeam2 app.ActiveColumn app.FastHuman app.HardMode app.FivePlayerMode app.GamepadEnabled
+    | Menu -> drawMenuBackdrop ctx fw fh   // the menu itself is HTML (index.html)
 
     | Playing ->
         renderFrame ctx gs viewW viewH false hudInset app.FastHuman app.HardMode
@@ -456,7 +455,7 @@ let private render () =
 
 /// Keys we consume for the game; prevent their default browser behavior.
 let private gameKeys =
-    System.Collections.Generic.HashSet<string>(
+    HashSet<string>(
         [| "ArrowLeft"; "ArrowRight"; "ArrowUp"; "ArrowDown"
            "ShiftRight"; "Enter"; "KeyA"; "KeyD"; "KeyW"; "KeyS"
            "Space"; "Tab"; "KeyL"; "KeyF"; "KeyH"; "KeyG"; "Digit5"; "F11" |])
@@ -549,7 +548,7 @@ let private promptInstall () =
         setClass (body ()) "can-install" false
 
 /// Keys tapped since the last update; released again right after it.
-let private pulses = System.Collections.Generic.List<string>()
+let private pulses = List<string>()
 
 let private pulseKey (code: string) =
     keys.Add code |> ignore
@@ -561,7 +560,7 @@ let private releasePulses () =
     pulses.Clear()
 
 // SHOOT buttons: finger → data-key button it is holding.
-let private touchHeld = System.Collections.Generic.Dictionary<int, obj>()
+let private touchHeld = Dictionary<int, obj>()
 
 /// Release `el`'s key and highlight unless another finger still holds it.
 let private releaseButton (el: obj) =
@@ -713,15 +712,60 @@ let private menuFast = getEl "tm-fast"
 let private menuHard = getEl "tm-hard"
 let mutable private shownPlay = false
 
+// ─── Desktop menu ───────────────────────────────────────────────────────────
+// The tap menu's layout for the mouse (index.html #desk-menu): both team lists
+// in full, built here from teamNames, plus the toggles and start buttons. The
+// keyboard keeps driving the same app state; syncMenuUi mirrors it.
+
+[<Emit("$0.innerHTML = $1")>]
+let private setHtml (el: obj) (html: string) : unit = jsNative
+[<Emit("Array.from($0.querySelectorAll($1))")>]
+let private queryAllIn (el: obj) (selector: string) : obj[] = jsNative
+
+/// Team buttons of one column (1 = left, 2 = right), indexed like teamNames.
+let private buildTeamList (col: int) =
+    let list = getEl $"dm-list{col}"
+    teamNames
+    |> Array.mapi (fun i name ->
+        $"<button class=\"dm-team\" data-action=\"pick\" data-col=\"{col}\" data-team=\"{i}\" type=\"button\">"
+        + $"<span>{name}</span><span class=\"dm-speed\"></span></button>")
+    |> String.concat ""
+    |> setHtml list
+    queryAllIn list ".dm-team"
+
+let private deskTeamRows = [| buildTeamList 1; buildTeamList 2 |]
+let private deskCols = [| getEl "dm-col1"; getEl "dm-col2" |]
+let private deskHeads = [| getEl "dm-head1"; getEl "dm-head2" |]
+let private deskPlayers = getEl "dm-players"
+let private deskFast = getEl "dm-fast"
+let private deskHard = getEl "dm-hard"
+let private deskGamepad = getEl "dm-gamepad"
+
+/// Selected team per column, active column, live speeds and toggle states.
+let private syncDeskMenu () =
+    for c in 0 .. 1 do
+        let selected = if c = 0 then app.SelectedTeam1 else app.SelectedTeam2
+        setClass deskCols[c] "active" (app.ActiveColumn = c)
+        setTextColor deskHeads[c] (teamColor (c = 1) app.FastHuman app.HardMode selected).Css
+        deskTeamRows[c]
+        |> Array.iteri (fun i row ->
+            setClass row "selected" (i = selected)
+            setText (query row ".dm-speed") $"speed {displayedTeamSpeed app.FastHuman app.HardMode i}")
+    setText (query deskPlayers "span") (if app.FivePlayerMode then "6 v 6" else "3 v 3")
+    setClass deskPlayers "on" true
+    setClass deskFast "on" app.FastHuman
+    setClass deskHard "on" app.HardMode
+    setClass deskGamepad "on" app.GamepadEnabled
+
 let inline private isMatchMode mode = (mode = Playing || mode = LeaguePlaying)
 
-/// Mirror the app state into body classes (which pick the visible controls)
-/// and the tap-menu labels. Called after every update and tap.
-let private syncTouchUi () =
+/// Mirror the app state into body classes (which pick the visible menu and
+/// controls) and the menu labels. Called after every update and tap.
+let private syncMenuUi () =
     let play = isMatchMode app.Mode
     if play <> shownPlay then
         shownPlay <- play
-        if play then bindControls () else releaseAllTouches ()
+        if touchMode then (if play then bindControls () else releaseAllTouches ())
     let b = body ()
     setClass b "mode-menu" (app.Mode = Menu)
     setClass b "mode-play" play
@@ -733,7 +777,8 @@ let private syncTouchUi () =
          | Playing | LeaguePlaying -> matchOver gs
          | LeagueMatchup | LeagueStandings | LeagueFinalStandings -> true
          | Menu -> false)
-    if app.Mode = Menu then
+    if app.Mode = Menu && not touchMode then syncDeskMenu ()
+    if app.Mode = Menu && touchMode then
         setText menuTeam1 teamNames[app.SelectedTeam1]
         setText menuTeam2 teamNames[app.SelectedTeam2]
         // Each name in the jersey colour that team will wear
@@ -758,19 +803,26 @@ let private onTap (e: obj) =
         | "players" -> app.FivePlayerMode <- not app.FivePlayerMode
         | "fast" -> app.FastHuman <- not app.FastHuman
         | "hard" -> app.HardMode <- not app.HardMode
+        | "gamepad" -> app.GamepadEnabled <- not app.GamepadEnabled
+        // Desktop team list: pick that team and make its column the active one
+        | "pick" when app.Mode = Menu ->
+            let col = int (attr button "data-col") - 1
+            let team = int (attr button "data-team")
+            app.ActiveColumn <- col
+            if col = 0 then app.SelectedTeam1 <- team else app.SelectedTeam2 <- team
         | "exhibition" when app.Mode = Menu ->
             startExhibitionMatch app
-            enterFullscreenLandscape ()
+            if touchMode then enterFullscreenLandscape ()
         | "league" when app.Mode = Menu ->
             app.League <- Some(createLeagueState app.SelectedTeam1)
             app.Mode <- LeagueMatchup
-            enterFullscreenLandscape ()
+            if touchMode then enterFullscreenLandscape ()
         | "pause" -> pulseKey "KeyP"
         | "menu" -> pulseKey "Escape"
         | "continue" -> pulseKey "Space"
         | "install" -> promptInstall ()
         | _ -> ()
-        syncTouchUi ()
+        syncMenuUi ()
         needsRender <- true
         blurActive ()   // a focused button would also "click" on a keyboard Space/Enter
 
@@ -797,13 +849,15 @@ let rec private loop (ts: float) =
     if needsRender then
         needsRender <- false
         render ()
-        if touchMode then syncTouchUi ()
+        syncMenuUi ()
 
     requestFrame loop
 
 // ─── Bootstrap ──────────────────────────────────────────────────────────
 onDocument "keydown" onKeyDown
 onDocument "keyup" onKeyUp
+// Menu buttons (tap menu and desktop menu)
+onDocument "click" onTap
 if touchMode then
     setClass (body ()) "touch" true
     setClass (body ()) "iphone-tab" (iPhoneBrowserTab ())
@@ -820,11 +874,10 @@ if touchMode then
     onDocument "pointermove" onPointerMove
     onDocument "pointerup" onPointerUp
     onDocument "pointercancel" onPointerUp
-    onDocument "click" onTap
     onDocument "contextmenu" preventDefault   // long-press menus
     // A backgrounded tab never delivers pointerup: drop every held key
     onWindow "blur" (fun _ -> releaseAllTouches (); keys.Clear())
-    syncTouchUi ()
+    syncMenuUi ()
 // ResizeObserver catches every displayed-size change of the canvas (window
 // resize, fullscreen, initial layout), including ones that don't fire the
 // window resize event.

@@ -662,79 +662,9 @@ let drawLeagueStandings (ctx: obj) width height (standings: (int * TeamStats) ar
 
 // ─── Menu Screen ──────────────────────────────────────────────────────
 
-/// Plain menu background for the touch layout, whose menu is an HTML overlay.
+/// Plain menu background: the menu itself is an HTML overlay (index.html).
 let drawMenuBackdrop (ctx: obj) width height =
     fillRect ctx 0.0 0.0 width height (Color(10, 10, 30))
-
-let drawMenu (ctx: obj) width height selectedTeam1 selectedTeam2 activeColumn fastHuman hardMode fivePlayer gamepadOn =
-    fillRect ctx 0.0 0.0 width height (Color(10, 10, 30))
-
-    let scale = min (width / OrigW) (height / OrigH)
-    let struct (bigSize, medSize, smallSize) = mkFonts scale
-
-    let menuGray = Color(140, 140, 140)
-
-    // Title + subtitle
-    drawCentered ctx bigSize width (height * 0.06) "THE FS HOCKEY LEAGUE" goalFlashColor
-
-    let sub = "Tuomas Hietanen, 2026"
-    drawCentered ctx smallSize width (height * 0.06 + bigSize * 1.4) sub menuGray
-
-    // Two-column team selection
-    let colW = width * 0.42
-    let col1X = width * 0.04
-    let col2X = width * 0.54
-    let listY = height * 0.22
-
-    let drawColumn colX (headerText: string) (headerColor: Color) selectedIdx isActive =
-        drawText ctx medSize headerText colX listY headerColor
-
-        if isActive then
-            let boxH = medSize * 1.3 + float NumTeams * smallSize * 1.6 + 6.0
-            drawRect ctx (colX - 3.0) (listY - 2.0) colW boxH 1.5 headerColor
-
-        for i in 0 .. NumTeams - 1 do
-            let ty = listY + medSize * 1.5 + float i * smallSize * 1.6
-            let isSelected = (i = selectedIdx)
-
-            if isSelected then
-                fillRect ctx colX (ty - 1.0) (colW - 6.0) (smallSize * 1.4) (Color(40, 60, 100))
-
-            let color = if isSelected then goalFlashColor else Color.White
-            let prefix = if isSelected then "> " else "  "
-            let label = $"{prefix}{teamNames.[i]}"
-            drawText ctx smallSize label (colX + 4.0) ty color
-
-            // Team skating speed, dimmed — a hint of how hard a CPU opponent
-            // is, reflecting the current fast-human/hard-mode settings
-            let labelW = measureWidth ctx smallSize label
-            let spd = displayedTeamSpeed fastHuman hardMode i
-            drawText ctx smallSize $" (speed {spd})" (colX + 4.0 + labelW) ty speedHintColor
-
-    drawColumn col1X "TEAM 1 (LEFT)" (teamColor false fastHuman hardMode selectedTeam1) selectedTeam1 (activeColumn = 0)
-    drawColumn col2X "TEAM 2 (RIGHT)" (teamColor true fastHuman hardMode selectedTeam2) selectedTeam2 (activeColumn = 1)
-
-    // Instructions
-    let fastStr = if fastHuman then "ON" else "OFF"
-    let hardStr = if hardMode then "ON" else "OFF"
-    let fiveStr = if fivePlayer then "6v6" else "3v3"
-    let padStr = if gamepadOn then "ON" else "OFF"
-
-    let instrLines =
-        [| "UP/DOWN = Select Team  |  TAB = Switch Column"
-           "ENTER = Start Game  |  L = Play League  |  P = Pause"
-           $"F = Fast Human [{fastStr}]  |  H = Hard Mode [{hardStr}]  |  5 = Players [{fiveStr}]"
-           $"G = Gamepad [{padStr}]  |  F11 = Toggle Fullscreen"
-           "Hold shoot key longer for harder shot, quick tap for a pass"
-           "Player 1: Arrow Keys + RShift/Enter, or Gamepad 1"
-           "Player 2: WASD + Space/Tab, or Gamepad 2"
-           "(Set team to HUMAN PLAYER for keyboard control)" |]
-
-    let baseY = height * 0.7
-
-    instrLines
-    |> Array.iteri (fun i line ->
-        drawCentered ctx smallSize width (baseY + float i * smallSize * 1.3) line menuGray)
 
 // ─── Main Render ──────────────────────────────────────────────────────
 

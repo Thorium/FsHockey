@@ -61,6 +61,11 @@ Hold the shoot key longer for a harder shot. A quick tap gives a weaker pass.
 
 Set a team to **HUMAN PLAYER** for keyboard control. Both teams can be human or CPU.
 
+On desktop the menu is also clickable: click a team in either list to pick it,
+click **EXHIBITION** or **LEAGUE** to start, and the toggles below them switch
+3v3 / 6v6, fast human, hard CPU and gamepads. Every control shows its
+keyboard shortcut, and the keys above keep working.
+
 ## Team colours
 
 The jersey colour tells a team's side and how fast it skates:

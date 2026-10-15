@@ -101,7 +101,7 @@ body.touch.mode-menu #touch-menu {
     display: flex;
 }
 
-#touch-menu {
+.game-menu {
     position: fixed;
     left: 50%;
     top: 50%;
@@ -116,14 +116,14 @@ body.touch.mode-menu #touch-menu {
     box-sizing: border-box;
 }
 
-#touch-menu h1 {
+.game-menu h1 {
     margin: 0 0 4px;
     font-size: 20px;
     color: rgb(255, 255, 80);
     text-align: center;
 }
 
-#touch-menu button {
+.game-menu button {
     min-width: 44px;
     min-height: 40px;
     font-size: 15px;
@@ -133,7 +133,7 @@ body.touch.mode-menu #touch-menu {
     border-radius: 6px;
 }
 
-#touch-menu button:active {
+.game-menu button:active {
     background: #2a3a58;
 }
 
@@ -159,16 +159,16 @@ body.touch.mode-menu #touch-menu {
     flex: 1 1 0;
 }
 
-#touch-menu .tm-toggle {
+.game-menu .tm-toggle {
     color: #8c8ca0;
 }
 
-#touch-menu .tm-toggle.on {
+.game-menu .tm-toggle.on {
     color: #90c0ff;
     border-color: #90c0ff;
 }
 
-#touch-menu .tm-start {
+.game-menu .tm-start {
     min-height: 48px;
     font-size: 18px;
     font-weight: bold;
@@ -438,28 +438,149 @@ body.can-install .rotate-install, body.iphone-tab .rotate-ios {
 
 /* The menu scrolls itself when it is taller than the screen (the page can't:
    body has touch-action: none) */
-#touch-menu {
+.game-menu {
     touch-action: pan-y;
 }
 
 /* Short landscape screens, e.g. an iPhone with Safari's bars showing */
 @media (max-height: 420px) {
-    #touch-menu {
+    .game-menu {
         gap: 4px;
         padding: 6px 12px 8px;
     }
 
-    #touch-menu h1 {
+    .game-menu h1 {
         font-size: 16px;
     }
 
-    #touch-menu button {
+    .game-menu button {
         min-height: 32px;
         font-size: 14px;
     }
 
-    #touch-menu .tm-start {
+    .game-menu .tm-start {
         min-height: 38px;
         font-size: 16px;
     }
+}
+
+/* ─── Desktop menu (not body.touch): the tap menu's look for the mouse, every
+   control labelled with its keyboard shortcut, both team lists in full.
+   Program.fs fills the lists and keeps selection, speeds and toggles live. ─ */
+
+#desk-menu {
+    display: none;
+    width: min(760px, calc(100vw - 32px));
+}
+
+body:not(.touch).mode-menu #desk-menu {
+    display: flex;
+}
+
+.game-menu button {
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.game-menu button:hover {
+    border-color: #90c0ff;
+}
+
+.game-menu kbd {
+    margin-left: 6px;
+    padding: 0 5px;
+    font-family: inherit;
+    font-size: 0.7em;
+    font-weight: normal;
+    color: #8c8ca0;
+    border: 1px solid #3a3a58;
+    border-radius: 3px;
+    vertical-align: middle;
+}
+
+.game-menu .tm-start kbd {
+    color: #2a3a58;
+    border-color: #2a3a58;
+}
+
+/* LEAGUE is a main choice next to EXHIBITION, in its own colour */
+.game-menu .tm-league {
+    background: rgb(255, 220, 80);
+    border-color: rgb(255, 220, 80);
+}
+
+.dm-teams {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.dm-col {
+    padding: 6px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+}
+
+/* The column the arrow keys move (Tab switches) */
+.dm-col.active {
+    border-color: #3a3a58;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.dm-head {
+    margin: 0 0 6px;
+    font-size: 15px;
+    color: #8c8ca0;
+}
+
+.dm-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.game-menu .dm-team {
+    display: flex;
+    justify-content: space-between;
+    min-height: 28px;
+    padding: 0 8px;
+    font-size: 14px;
+    text-align: left;
+    background: transparent;
+    border-color: transparent;
+}
+
+.game-menu .dm-team.selected {
+    color: rgb(255, 255, 80);
+    background: #2a3a58;
+}
+
+.dm-speed {
+    color: rgb(105, 105, 125);
+}
+
+.dm-controls {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    color: #c8c8d0;
+}
+
+.dm-controls th {
+    font-weight: normal;
+    color: #8c8ca0;
+    text-align: left;
+    padding: 2px 6px;
+}
+
+.dm-controls td {
+    padding: 2px 6px;
+    border-top: 1px solid #2a2a3a;
+}
+
+.dm-footer {
+    margin: 0;
+    font-size: 12px;
+    text-align: center;
+    color: #8c8ca0;
 }
