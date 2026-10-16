@@ -447,6 +447,20 @@ let drawPauseOverlay (g: Graphics) (width: float32) (height: float32) =
     drawCentered g font (solidBrush goalFlashColor) width (height * 0.42f) "PAUSED"
     drawCentered g small (solidBrush (Color.FromArgb(160, 160, 160))) width (height * 0.42f + 40.0f * scale) "Press P to continue"
 
+// ─── Quit-the-league Prompt ───────────────────────────────────────────
+
+/// Over a league screen: Escape asked to leave the league, whose standings
+/// would be lost with it
+let drawQuitLeaguePrompt (g: Graphics) (width: float32) (height: float32) =
+    g.FillRectangle(solidBrush (Color.FromArgb(170, Color.Black)), 0.0f, 0.0f, width, height)
+    let scale = min (width / OrigW) (height / OrigH)
+    let font = fontFor (max 10.0f (14.0f * scale)) FontStyle.Bold
+    let small = fontFor (max 7.0f (6.0f * scale)) FontStyle.Regular
+    let gray = solidBrush (Color.FromArgb(160, 160, 160))
+    drawCentered g font (solidBrush goalFlashColor) width (height * 0.40f) "QUIT THE LEAGUE?"
+    drawCentered g small gray width (height * 0.40f + 40.0f * scale) "The standings so far will be lost"
+    drawCentered g small gray width (height * 0.40f + 58.0f * scale) "Y: quit the league    N / Esc: keep playing"
+
 // ─── Period Start Banner ──────────────────────────────────────────────
 
 let drawPeriodFlash (g: Graphics) (gs: GameState) (width: float32) (height: float32) =

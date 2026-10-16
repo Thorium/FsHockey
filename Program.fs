@@ -33,6 +33,8 @@ type AppState =
       mutable FivePlayerMode: bool
       mutable GamepadEnabled: bool
       mutable Paused: bool
+      /// the "quit the league?" prompt is open (Escape on a league screen)
+      mutable ConfirmQuit: bool
       mutable League: LeagueState option }
 
 let createAppState () =
@@ -46,6 +48,7 @@ let createAppState () =
       FivePlayerMode = false
       GamepadEnabled = true
       Paused = false
+      ConfirmQuit = false
       League = None }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -304,7 +307,7 @@ type HockeyForm() as this =
 
         match app.Mode with
         | Playing
-        | LeaguePlaying when not app.Paused ->
+        | LeaguePlaying when not app.Paused && not app.ConfirmQuit ->
             gs.Input1 <- kbInput1
             gs.Input2 <- kbInput2
 
@@ -362,16 +365,24 @@ type HockeyForm() as this =
                         app.HardMode
                 | None -> ()
 
+                if app.ConfirmQuit then
+                    drawQuitLeaguePrompt g fw fh
+
             | LeaguePlaying ->
                 renderFrame g gs w h true app.FastHuman app.HardMode
 
-                if app.Paused then
+                if app.ConfirmQuit then
+                    drawQuitLeaguePrompt g fw fh
+                elif app.Paused then
                     drawPauseOverlay g fw fh
 
             | LeagueStandings ->
                 app.League
                 |> Option.iter (fun league ->
                     drawLeagueStandings g fw fh (getSortedStandings league) false league.HumanTeam)
+
+                if app.ConfirmQuit then
+                    drawQuitLeaguePrompt g fw fh
 
             | LeagueFinalStandings ->
                 app.League
@@ -384,6 +395,10 @@ type HockeyForm() as this =
             kbInput2 <- mapPlayer2Keys kbInput2 e.KeyCode false
 
         match app.Mode with
+        // the "quit the league?" prompt takes every key while it is up
+        | LeagueMatchup
+        | LeaguePlaying
+        | LeagueStandings when down && app.ConfirmQuit -> this.HandleQuitPromptKey e.KeyCode
         | Menu when down -> this.HandleMenuKey e.KeyCode
         | Playing -> this.HandleGameKey(e.KeyCode, down)
         | LeagueMatchup when down -> this.HandleLeagueMatchupKey e.KeyCode
@@ -467,14 +482,28 @@ type HockeyForm() as this =
             | Keys.Space when matchOver gs -> app.Mode <- Menu
             | _ -> ()
 
+    // ─── League: the "quit the league?" prompt ────────────────────
+
+    /// Modal over the league screens: Y abandons the league (its standings
+    /// with it), N or Escape returns, and a match in progress waits meanwhile.
+    /// Y / N rather than Enter or Space, which are the shoot and continue keys.
+    member _.HandleQuitPromptKey key =
+        match key with
+        | Keys.Y ->
+            app.ConfirmQuit <- false
+            app.Paused <- false
+            app.League <- None
+            app.Mode <- Menu
+        | Keys.N
+        | Keys.Escape -> app.ConfirmQuit <- false
+        | _ -> ()
+
     // ─── League: Pre-match ────────────────────────────────────────
 
     member _.HandleLeagueMatchupKey key =
         match key with
         | Keys.Space -> startLeagueMatch app
-        | Keys.Escape ->
-            app.League <- None
-            app.Mode <- Menu
+        | Keys.Escape -> app.ConfirmQuit <- true
         | _ -> ()
 
     // ─── League: In-game ──────────────────────────────────────────
@@ -493,10 +522,7 @@ type HockeyForm() as this =
                     let finished = advanceRound league
                     app.Mode <- if finished then LeagueFinalStandings else LeagueStandings
                 | None -> app.Mode <- Menu
-            | Keys.Escape ->
-                app.Paused <- false
-                app.League <- None
-                app.Mode <- Menu
+            | Keys.Escape -> app.ConfirmQuit <- true
             | _ -> ()
 
     // ─── League: Standings ────────────────────────────────────────
@@ -504,9 +530,7 @@ type HockeyForm() as this =
     member _.HandleLeagueStandingsKey key =
         match key with
         | Keys.Space -> app.Mode <- LeagueMatchup
-        | Keys.Escape ->
-            app.League <- None
-            app.Mode <- Menu
+        | Keys.Escape -> app.ConfirmQuit <- true
         | _ -> ()
 
     // ─── League: Final Standings ──────────────────────────────────
