@@ -335,8 +335,15 @@ match runner.Model.League with
     check "round advanced" (league.CurrentRound = 1)
 | None -> check "league still exists" false
 
+// Escape asks first: the league (and its standings) stay until Y answers;
+// N keeps playing
 press Back
-check "Esc leaves the league" (runner.Model.Mode = Menu && runner.Model.League.IsNone)
+check "Esc asks before leaving the league" (runner.Model.ConfirmQuit && runner.Model.Mode = LeagueStandings)
+press QuitNo
+check "N keeps the league" (not runner.Model.ConfirmQuit && runner.Model.League.IsSome)
+press Back
+press QuitYes
+check "Esc then Y leaves the league" (runner.Model.Mode = Menu && runner.Model.League.IsNone && not runner.Model.ConfirmQuit)
 
 // ══════════════════════════════════════════════════════════════════════
 printfn "── Test 17: headless app — Esc in the menu quits ──"

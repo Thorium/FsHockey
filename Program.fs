@@ -81,7 +81,7 @@ let private view (ctx: GameContext) (m: Model) (buffer: RenderBuffer2D) =
     | LeaguePlaying ->
         renderFrame buffer font m.Gs w h true m.FastHuman m.HardMode
 
-        if m.Paused then
+        if m.Paused && not m.ConfirmQuit then
             drawPauseOverlay buffer font w h
 
     | LeagueStandings ->
@@ -93,6 +93,10 @@ let private view (ctx: GameContext) (m: Model) (buffer: RenderBuffer2D) =
         m.League
         |> Option.iter (fun league ->
             drawLeagueStandings buffer font w h (getSortedStandings league) true league.HumanTeam)
+
+    // the "quit the league?" prompt over whichever league screen asked
+    if m.ConfirmQuit then
+        drawQuitLeaguePrompt buffer font w h
 
 // ─── Subscriptions ────────────────────────────────────────────────────
 // The gamepad subscription is only active while gamepads are enabled in

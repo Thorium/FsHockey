@@ -41,6 +41,9 @@ type HockeyAction =
     | ToggleFullscreen
     | Back
     | Continue
+    /// the "quit the league?" prompt's answers (Y / N)
+    | QuitYes
+    | QuitNo
 
 let inputMap =
     InputMap.empty
@@ -72,6 +75,8 @@ let inputMap =
     |> InputMap.key ToggleFullscreen KeyCode.F11
     |> InputMap.key Back KeyCode.Escape
     |> InputMap.key Continue KeyCode.Space
+    |> InputMap.key QuitYes KeyCode.Y
+    |> InputMap.key QuitNo KeyCode.N
 
 // ─── Gamepad State ────────────────────────────────────────────────────
 // Mibo's Gamepad subscription delivers deltas (pressed/released + analog),
@@ -148,6 +153,8 @@ type Model =
       FivePlayerMode: bool
       GamepadEnabled: bool
       Paused: bool
+      /// the "quit the league?" prompt is open (Escape on a league screen)
+      ConfirmQuit: bool
       League: LeagueState option
       Input: ActionState<HockeyAction>
       Pad1: PadState
@@ -263,6 +270,7 @@ let initWith (rng: System.Random) (_ctx: GameContext) : struct (Model * Cmd<Msg>
       FivePlayerMode = false
       GamepadEnabled = true
       Paused = false
+      ConfirmQuit = false
       League = None
       Input = ActionState.empty
       Pad1 = PadState.empty
@@ -359,7 +367,19 @@ let private handleLeaguePlaying (started: Set<HockeyAction>) (m: Model) : struct
             { m with Mode = (if finished then LeagueFinalStandings else LeagueStandings) }, Cmd.none
         | None -> { m with Mode = Menu }, Cmd.none
     elif started.Contains Back then
-        { m with League = None; Mode = Menu }, Cmd.none
+        { m with ConfirmQuit = true }, Cmd.none
+    else
+        m, Cmd.none
+
+/// The "quit the league?" prompt is modal: Y abandons the league (its
+/// standings with it), N or Escape returns, and a match in progress waits
+/// meanwhile. Y / N rather than Enter or Space, which are the player's shoot
+/// and continue keys.
+let private handleQuitPrompt (started: Set<HockeyAction>) (m: Model) : struct (Model * Cmd<Msg>) =
+    if started.Contains QuitYes then
+        { m with ConfirmQuit = false; Paused = false; League = None; Mode = Menu }, Cmd.none
+    elif started.Contains QuitNo || started.Contains Back then
+        { m with ConfirmQuit = false }, Cmd.none
     else
         m, Cmd.none
 
@@ -370,17 +390,21 @@ let private handleInput (input: ActionState<HockeyAction>) (m: Model) : struct (
     if started.Contains ToggleFullscreen then
         toggleFullscreenHook ()
 
+    if m.ConfirmQuit then
+        handleQuitPrompt started m
+    else
+
     match m.Mode with
     | Menu -> handleMenu started m
     | Playing -> handlePlaying started m
     | LeaguePlaying -> handleLeaguePlaying started m
     | LeagueMatchup ->
         if started.Contains Continue then startLeagueMatch m, Cmd.none
-        elif started.Contains Back then { m with League = None; Mode = Menu }, Cmd.none
+        elif started.Contains Back then { m with ConfirmQuit = true }, Cmd.none
         else m, Cmd.none
     | LeagueStandings ->
         if started.Contains Continue then { m with Mode = LeagueMatchup }, Cmd.none
-        elif started.Contains Back then { m with League = None; Mode = Menu }, Cmd.none
+        elif started.Contains Back then { m with ConfirmQuit = true }, Cmd.none
         else m, Cmd.none
     | LeagueFinalStandings ->
         if started.Contains Continue || started.Contains Back then
@@ -402,7 +426,7 @@ let private keysInput (held: Set<HockeyAction>) l r u d f : Input =
 let private physicsStep (m: Model) : Model =
     match m.Mode with
     | Playing
-    | LeaguePlaying when not m.Paused ->
+    | LeaguePlaying when not m.Paused && not m.ConfirmQuit ->
         let gs = m.Gs
         let held = m.Input.Held
         let k1 = keysInput held P1Left P1Right P1Up P1Down P1Fire

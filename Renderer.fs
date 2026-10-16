@@ -473,6 +473,17 @@ let drawPauseOverlay (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (he
     drawCentered b font (max 10.0f (14.0f * scale)) width (height * 0.42f) "PAUSED" goalFlashColor LOverlay
     drawCentered b font (max 7.0f (6.0f * scale)) width (height * 0.42f + 40.0f * scale) "Press P to continue" grayColor LOverlay
 
+// ─── Quit-the-league Prompt ───────────────────────────────────────────
+
+/// Over a league screen: Escape asked to leave the league, whose standings
+/// would be lost with it
+let drawQuitLeaguePrompt (b: RenderBuffer2D) (font: SpriteFont) (width: float32) (height: float32) =
+    fillRect b 0.0f 0.0f width height (Color.create 0uy 0uy 0uy 170uy) LOverlay
+    let scale = min (width / OrigW) (height / OrigH)
+    drawCentered b font (max 10.0f (14.0f * scale)) width (height * 0.40f) "QUIT THE LEAGUE?" goalFlashColor LOverlay
+    drawCentered b font (max 7.0f (6.0f * scale)) width (height * 0.40f + 40.0f * scale) "The standings so far will be lost" grayColor LOverlay
+    drawCentered b font (max 7.0f (6.0f * scale)) width (height * 0.40f + 58.0f * scale) "Y: quit the league    N / Esc: keep playing" grayColor LOverlay
+
 // ─── Period Start Banner ──────────────────────────────────────────────
 
 let drawPeriodFlash (b: RenderBuffer2D) (font: SpriteFont) (gs: GameState) (width: float32) (height: float32) =
