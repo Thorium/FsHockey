@@ -246,6 +246,40 @@ body.show-continue .tc-continue {
     display: block;
 }
 
+/* The "quit the league?" prompt (Escape / MENU on a league screen): its
+   answers replace CONTINUE while body.confirm-quit is set by Program.fs */
+.tc-quit-prompt {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    gap: 12px;
+}
+
+body.confirm-quit .tc-quit-prompt {
+    display: flex;
+}
+
+body.confirm-quit .tc-continue {
+    display: none;
+}
+
+.tc-quit-answer {
+    position: static;
+    width: 170px;
+    height: 56px;
+    font-size: 15px;
+    font-weight: bold;
+    border-radius: 10px;
+    background: rgba(255, 128, 128, 0.85);
+    color: #0a0a12;
+}
+
+.tc-quit-keep {
+    background: rgba(144, 192, 255, 0.85);
+}
+
 /* Stick, SHOOT and PAUSE only while a match is on (not on its result) */
 .stick-zone, .stick-base, .tc-shoot, #tc-pause {
     display: none;

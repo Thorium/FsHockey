@@ -85,6 +85,8 @@ type AppState =
       mutable FivePlayerMode: bool
       mutable GamepadEnabled: bool
       mutable Paused: bool
+      /// the "quit the league?" prompt is open (Escape on a league screen)
+      mutable ConfirmQuit: bool
       mutable League: LeagueState option }
 
 let createAppState () =
@@ -98,6 +100,7 @@ let createAppState () =
       FivePlayerMode = false
       GamepadEnabled = true
       Paused = false
+      ConfirmQuit = false
       League = None }
 
 // ─── Helpers (ported from the MonoGame Program) ────────────────────────
@@ -309,6 +312,19 @@ let private update () =
     if pressed "F11" then toggleFullscreen ()
 
     match app.Mode with
+    // The "quit the league?" prompt is modal: Y abandons the league (its
+    // standings with it), N or Escape returns, and a match in progress waits
+    // meanwhile. Y / N rather than Enter or Space, which are the player's
+    // shoot and continue keys. The touch layout's buttons pulse the same keys.
+    | _ when app.ConfirmQuit ->
+        if pressed "KeyY" then
+            app.ConfirmQuit <- false
+            app.Paused <- false
+            app.League <- None
+            app.Mode <- Menu
+        elif pressed "KeyN" || pressed "Escape" then
+            app.ConfirmQuit <- false
+
     | Menu ->
         if pressed "Tab" then
             app.ActiveColumn <- 1 - app.ActiveColumn
@@ -357,9 +373,7 @@ let private update () =
     | LeagueMatchup ->
         if pressed "Space" then startLeagueMatch app
 
-        if pressed "Escape" then
-            app.League <- None
-            app.Mode <- Menu
+        if pressed "Escape" then app.ConfirmQuit <- true
 
     | LeaguePlaying ->
         if pressed "KeyP" then app.Paused <- not app.Paused
@@ -384,17 +398,12 @@ let private update () =
                 app.Mode <- if finished then LeagueFinalStandings else LeagueStandings
             | None -> app.Mode <- Menu
 
-        if pressed "Escape" then
-            app.Paused <- false
-            app.League <- None
-            app.Mode <- Menu
+        if pressed "Escape" then app.ConfirmQuit <- true
 
     | LeagueStandings ->
         if pressed "Space" then app.Mode <- LeagueMatchup
 
-        if pressed "Escape" then
-            app.League <- None
-            app.Mode <- Menu
+        if pressed "Escape" then app.ConfirmQuit <- true
 
     | LeagueFinalStandings ->
         if pressed "Space" || pressed "Escape" then
@@ -439,7 +448,7 @@ let private render () =
 
     | LeaguePlaying ->
         renderFrame ctx gs viewW viewH true hudInset app.FastHuman app.HardMode
-        if app.Paused then drawPauseOverlay ctx viewW viewH
+        if app.Paused && not app.ConfirmQuit then drawPauseOverlay ctx viewW viewH
 
     | LeagueStandings ->
         app.League
@@ -450,6 +459,9 @@ let private render () =
         app.League
         |> Option.iter (fun league ->
             drawLeagueStandings ctx fw fh (getSortedStandings league) true league.HumanTeam touchMode)
+
+    // the "quit the league?" prompt over whichever league screen asked
+    if app.ConfirmQuit then drawQuitLeaguePrompt ctx viewW viewH touchMode
 
 // ─── Input handlers ──────────────────────────────────────────────────────
 
@@ -770,6 +782,7 @@ let private syncMenuUi () =
     setClass b "mode-menu" (app.Mode = Menu)
     setClass b "mode-play" play
     setClass b "paused" (play && app.Paused)
+    setClass b "confirm-quit" app.ConfirmQuit
     setClass b "two-humans" (play && gs.Team1Human && gs.Team2Human)
     setClass b "no-humans" (play && not gs.Team1Human && not gs.Team2Human)
     setClass b "show-continue"
@@ -820,6 +833,9 @@ let private onTap (e: obj) =
         | "pause" -> pulseKey "KeyP"
         | "menu" -> pulseKey "Escape"
         | "continue" -> pulseKey "Space"
+        // the "quit the league?" prompt's answers
+        | "quit-yes" -> pulseKey "KeyY"
+        | "quit-no" -> pulseKey "KeyN"
         | "install" -> promptInstall ()
         | _ -> ()
         syncMenuUi ()

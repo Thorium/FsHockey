@@ -448,6 +448,18 @@ let drawPauseOverlay (ctx: obj) (width: float) (height: float) =
     drawCentered ctx (max 10.0 (14.0 * scale)) width (height * 0.42) "PAUSED" goalFlashColor
     drawCentered ctx (max 7.0 (6.0 * scale)) width (height * 0.42 + 40.0 * scale) "Press P to continue" grayColor
 
+// ─── Quit-the-league Prompt ───────────────────────────────────────────
+
+/// Over a league screen: Escape asked to leave the league, whose standings
+/// would be lost with it. The touch layout answers with its own buttons.
+let drawQuitLeaguePrompt (ctx: obj) (width: float) (height: float) (touch: bool) =
+    fillRect ctx 0.0 0.0 width height (Color(0, 0, 0, 170))
+    let scale = min (width / OrigW) (height / OrigH)
+    drawCentered ctx (max 10.0 (14.0 * scale)) width (height * 0.40) "QUIT THE LEAGUE?" goalFlashColor
+    drawCentered ctx (max 7.0 (6.0 * scale)) width (height * 0.40 + 40.0 * scale) "The standings so far will be lost" grayColor
+    if not touch then
+        drawCentered ctx (max 7.0 (6.0 * scale)) width (height * 0.40 + 58.0 * scale) "Y: quit the league    N / Esc: keep playing" grayColor
+
 // ─── Period Start Banner ──────────────────────────────────────────────
 
 let drawPeriodFlash (ctx: obj) (gs: GameState) (width: float) (height: float) =

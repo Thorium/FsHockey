@@ -91,6 +91,11 @@
         <button class="tc tc-top-btn" data-action="menu" type="button" aria-label="Quit to the menu">MENU</button>
     </div>
     <button class="tc tc-continue" data-action="continue" type="button">CONTINUE</button>
+    <!-- The "quit the league?" prompt's answers (body.confirm-quit, set by Program.fs) -->
+    <div class="tc-quit-prompt">
+        <button class="tc tc-quit-answer" data-action="quit-yes" type="button">QUIT LEAGUE</button>
+        <button class="tc tc-quit-answer tc-quit-keep" data-action="quit-no" type="button">KEEP PLAYING</button>
+    </div>
     <!-- Stick 1 drives the first human team, stick 2 (shown when both teams
          are human) the second; Program.fs binds their keys per match -->
     <div class="stick-zone" id="stick-zone-1" aria-label="Skate stick"></div>
