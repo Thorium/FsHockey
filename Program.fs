@@ -34,6 +34,8 @@ type AppState =
       mutable FivePlayerMode: bool
       mutable GamepadEnabled: bool
       mutable Paused: bool
+      /// the "quit the league?" prompt is open (Escape on a league screen)
+      mutable ConfirmQuit: bool
       mutable League: LeagueState option }
 
 let createAppState () =
@@ -47,6 +49,7 @@ let createAppState () =
       FivePlayerMode = false
       GamepadEnabled = true
       Paused = false
+      ConfirmQuit = false
       League = None }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -356,13 +359,27 @@ type HockeyGame() as this =
             if this.IsKeyPressed(Keys.Space, ks) && matchOver gs then
                 app.Mode <- Menu
 
+        // The "quit the league?" prompt is modal: Y abandons the league (its
+        // standings with it), N or Escape returns, and a match in progress
+        // waits meanwhile. Y / N rather than Enter or Space, which are the
+        // player's shoot and continue keys.
+        | LeagueMatchup
+        | LeaguePlaying
+        | LeagueStandings when app.ConfirmQuit ->
+            if this.IsKeyPressed(Keys.Y, ks) then
+                app.ConfirmQuit <- false
+                app.Paused <- false
+                app.League <- None
+                app.Mode <- Menu
+            elif this.IsKeyPressed(Keys.N, ks) || this.IsKeyPressed(Keys.Escape, ks) then
+                app.ConfirmQuit <- false
+
         | LeagueMatchup ->
             if this.IsKeyPressed(Keys.Space, ks) then
                 startLeagueMatch app
 
             if this.IsKeyPressed(Keys.Escape, ks) then
-                app.League <- None
-                app.Mode <- Menu
+                app.ConfirmQuit <- true
 
         | LeaguePlaying ->
             if this.IsKeyPressed(Keys.P, ks) then
@@ -389,16 +406,14 @@ type HockeyGame() as this =
                 | None -> app.Mode <- Menu
 
             if this.IsKeyPressed(Keys.Escape, ks) then
-                app.League <- None
-                app.Mode <- Menu
+                app.ConfirmQuit <- true
 
         | LeagueStandings ->
             if this.IsKeyPressed(Keys.Space, ks) then
                 app.Mode <- LeagueMatchup
 
             if this.IsKeyPressed(Keys.Escape, ks) then
-                app.League <- None
-                app.Mode <- Menu
+                app.ConfirmQuit <- true
 
         | LeagueFinalStandings ->
             if this.IsKeyPressed(Keys.Space, ks) || this.IsKeyPressed(Keys.Escape, ks) then
@@ -444,16 +459,24 @@ type HockeyGame() as this =
                     app.HardMode
             | None -> ()
 
+            if app.ConfirmQuit then
+                drawQuitLeaguePrompt spriteBatch fw fh
+
         | LeaguePlaying ->
             renderFrame spriteBatch gs w h true app.FastHuman app.HardMode
 
-            if app.Paused then
+            if app.ConfirmQuit then
+                drawQuitLeaguePrompt spriteBatch fw fh
+            elif app.Paused then
                 drawPauseOverlay spriteBatch fw fh
 
         | LeagueStandings ->
             app.League
             |> Option.iter (fun league ->
                 drawLeagueStandings spriteBatch fw fh (getSortedStandings league) false league.HumanTeam)
+
+            if app.ConfirmQuit then
+                drawQuitLeaguePrompt spriteBatch fw fh
 
         | LeagueFinalStandings ->
             app.League

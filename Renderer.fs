@@ -458,6 +458,21 @@ let drawPauseOverlay (sb: SpriteBatch) (width: float32) (height: float32) =
         drawCentered sb small width (height * 0.42f + 40.0f * scale) "Press P to continue" grayColor
     | _ -> ()
 
+// ─── Quit-the-league Prompt ───────────────────────────────────────────
+
+/// Over a league screen: Escape asked to leave the league, whose standings
+/// would be lost with it
+let drawQuitLeaguePrompt (sb: SpriteBatch) (width: float32) (height: float32) =
+    fillRect sb 0.0f 0.0f width height (Color(0, 0, 0, 170))
+    let scale = min (width / OrigW) (height / OrigH)
+
+    match getFont (max 10.0f (14.0f * scale)), getFont (max 7.0f (6.0f * scale)) with
+    | Some font, Some small ->
+        drawCentered sb font width (height * 0.40f) "QUIT THE LEAGUE?" goalFlashColor
+        drawCentered sb small width (height * 0.40f + 40.0f * scale) "The standings so far will be lost" grayColor
+        drawCentered sb small width (height * 0.40f + 58.0f * scale) "Y: quit the league    N / Esc: keep playing" grayColor
+    | _ -> ()
+
 // ─── Period Start Banner ──────────────────────────────────────────────
 
 let drawPeriodFlash (sb: SpriteBatch) (gs: GameState) (width: float32) (height: float32) =
