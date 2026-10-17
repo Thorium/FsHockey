@@ -605,7 +605,7 @@ let drawLeagueStandings (g: Graphics) width height (standings: (int * TeamStats)
            nameW + width * 0.40f
            nameW + width * 0.50f |]
 
-    [| "TEAM"; "W"; "L"; "D"; "PTS"; "GF"; "GA" |]
+    [| "TEAM"; "W"; "L"; "D"; "GF"; "GA"; "PTS" |]
     |> Array.iteri (fun i h ->
         let hx = if i = 0 then tableX else tableX + colPositions.[i - 1]
         g.DrawString(h, medFont, grayBrush, hx, headerY))
@@ -632,9 +632,9 @@ let drawLeagueStandings (g: Graphics) width height (standings: (int * TeamStats)
         [| $"{stats.Wins}"
            $"{stats.Losses}"
            $"{stats.Draws}"
-           $"{stats.Points}"
            $"{stats.GoalsFor}"
-           $"{stats.GoalsAgainst}" |]
+           $"{stats.GoalsAgainst}"
+           $"{stats.Points}" |]
         |> Array.iteri (fun i v -> g.DrawString(v, smallFont, whiteBrush, tableX + colPositions.[i], ry)))
 
     // Winner announcement
