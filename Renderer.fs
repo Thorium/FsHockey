@@ -603,7 +603,7 @@ let drawLeagueStandings (b: RenderBuffer2D) (font: SpriteFont) (width: float32) 
            nameW + width * 0.40f
            nameW + width * 0.50f |]
 
-    [| "TEAM"; "W"; "L"; "D"; "PTS"; "GF"; "GA" |]
+    [| "TEAM"; "W"; "L"; "D"; "GF"; "GA"; "PTS" |]
     |> Array.iteri (fun i h ->
         let hx = if i = 0 then tableX else tableX + colPositions.[i - 1]
         drawText b font medSize hx headerY h grayColor LRink)
@@ -630,9 +630,9 @@ let drawLeagueStandings (b: RenderBuffer2D) (font: SpriteFont) (width: float32) 
         [| $"{stats.Wins}"
            $"{stats.Losses}"
            $"{stats.Draws}"
-           $"{stats.Points}"
            $"{stats.GoalsFor}"
-           $"{stats.GoalsAgainst}" |]
+           $"{stats.GoalsAgainst}"
+           $"{stats.Points}" |]
         |> Array.iteri (fun i v -> drawText b font smallSize (tableX + colPositions.[i]) ry v white LTrail))
 
     // Winner announcement
