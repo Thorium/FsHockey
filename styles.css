@@ -222,7 +222,7 @@ body.touch:not(.mode-menu) #touch-controls {
     font-size: 12px;
     border-radius: 8px;
     /* Dark backing: white text on the light ice is unreadable otherwise */
-    background: rgba(10, 10, 30, 0.75);
+    background: rgba(10, 10, 30, 0.4);
     border-color: rgba(255, 255, 255, 0.6);
 }
 
