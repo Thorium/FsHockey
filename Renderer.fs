@@ -615,7 +615,7 @@ let drawLeagueStandings (sb: SpriteBatch) width height (standings: (int * TeamSt
                nameW + width * 0.40f
                nameW + width * 0.50f |]
 
-        [| "TEAM"; "W"; "L"; "D"; "PTS"; "GF"; "GA" |]
+        [| "TEAM"; "W"; "L"; "D"; "GF"; "GA"; "PTS" |]
         |> Array.iteri (fun i h ->
             let hx = if i = 0 then tableX else tableX + colPositions.[i - 1]
             drawText medFont sb h (Vector2(hx, headerY)) grayColor)
@@ -642,9 +642,9 @@ let drawLeagueStandings (sb: SpriteBatch) width height (standings: (int * TeamSt
             [| $"{stats.Wins}"
                $"{stats.Losses}"
                $"{stats.Draws}"
-               $"{stats.Points}"
                $"{stats.GoalsFor}"
-               $"{stats.GoalsAgainst}" |]
+               $"{stats.GoalsAgainst}"
+               $"{stats.Points}" |]
             |> Array.iteri (fun i v ->
                 drawText smallFont sb v (Vector2(tableX + colPositions.[i], ry)) Color.White))
 
