@@ -603,21 +603,21 @@ let drawLeagueStandings (ctx: obj) width height (standings: (int * TeamStats) ar
     drawCentered ctx bigSize width (titleYAt scale) title goalFlashColor
 
     // Column headers
-    let tableX = width * 0.04
+    // A wide left margin keeps the rank clear of a phone's camera notch
+    let tableX = width * 0.09
     let headerY = headerYAt scale
     let rowH = rowHAt scale
-    let nameW = width * 0.38
+    let nameW = width * 0.34
 
     let colPositions =
         [| nameW
-           nameW + width * 0.07
-           nameW + width * 0.14
+           nameW + width * 0.065
+           nameW + width * 0.13
            nameW + width * 0.21
-           nameW + width * 0.30
-           nameW + width * 0.40
-           nameW + width * 0.50 |]
+           nameW + width * 0.29
+           nameW + width * 0.38 |]
 
-    [| "TEAM"; "W"; "L"; "D"; "PTS"; "GF"; "GA" |]
+    [| "TEAM"; "W"; "L"; "D"; "GF"; "GA"; "PTS" |]
     |> Array.iteri (fun i h ->
         let hx = if i = 0 then tableX else tableX + colPositions.[i - 1]
         drawText ctx medSize h hx headerY grayColor)
@@ -644,9 +644,9 @@ let drawLeagueStandings (ctx: obj) width height (standings: (int * TeamStats) ar
         [| $"{stats.Wins}"
            $"{stats.Losses}"
            $"{stats.Draws}"
-           $"{stats.Points}"
            $"{stats.GoalsFor}"
-           $"{stats.GoalsAgainst}" |]
+           $"{stats.GoalsAgainst}"
+           $"{stats.Points}" |]
         |> Array.iteri (fun i v ->
             drawText ctx smallSize v (tableX + colPositions.[i]) ry Color.White))
 

@@ -221,6 +221,9 @@ body.touch:not(.mode-menu) #touch-controls {
     height: 36px;
     font-size: 12px;
     border-radius: 8px;
+    /* Dark backing: white text on the light ice is unreadable otherwise */
+    background: rgba(10, 10, 30, 0.75);
+    border-color: rgba(255, 255, 255, 0.6);
 }
 
 body.paused #tc-pause {
@@ -255,6 +258,7 @@ body.show-continue .tc-continue {
     bottom: calc(24px + env(safe-area-inset-bottom));
     transform: translateX(-50%);
     gap: 12px;
+    z-index: 1;
 }
 
 body.confirm-quit .tc-quit-prompt {
@@ -285,12 +289,14 @@ body.confirm-quit .tc-continue {
     display: none;
 }
 
-body.mode-play:not(.show-continue) #stick-zone-1,
-body.mode-play:not(.show-continue) #stick-base-1,
-body.mode-play:not(.show-continue) #tc-shoot-1,
-body.mode-play.two-humans:not(.show-continue) #stick-zone-2,
-body.mode-play.two-humans:not(.show-continue) #stick-base-2,
-body.mode-play.two-humans:not(.show-continue) #tc-shoot-2 {
+/* ...and hidden under the "quit the league?" prompt, whose answers they would
+   otherwise catch (the stick zone covers most of the screen) */
+body.mode-play:not(.show-continue):not(.confirm-quit) #stick-zone-1,
+body.mode-play:not(.show-continue):not(.confirm-quit) #stick-base-1,
+body.mode-play:not(.show-continue):not(.confirm-quit) #tc-shoot-1,
+body.mode-play.two-humans:not(.show-continue):not(.confirm-quit) #stick-zone-2,
+body.mode-play.two-humans:not(.show-continue):not(.confirm-quit) #stick-base-2,
+body.mode-play.two-humans:not(.show-continue):not(.confirm-quit) #tc-shoot-2 {
     display: block;
 }
 
