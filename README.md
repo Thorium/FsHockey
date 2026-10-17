@@ -73,5 +73,5 @@ next-game screen shows each team's speed after its name, as the menu does.
 
 By Tuomas Hietanen. Influenced by Wayne Gretzky Hockey (1988) and Solar Hockey (c) 1990-1992 Galifir Developments.
 
-<img width="1191" height="527" alt="image" src="https://github.com/user-attachments/assets/01e121cb-1d32-4087-96b6-ff4b9200188e" />
+<img width="959" height="613" alt="image" src="https://github.com/user-attachments/assets/03566026-66b7-49ce-9695-e7da277cdfeb" />
 
