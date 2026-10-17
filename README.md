@@ -84,6 +84,8 @@ share a colour.
 
 ## Touch (phones / tablets)
 
+<img width="666" height="376" alt="image" src="https://github.com/user-attachments/assets/9d0e2b8a-b595-441d-b1b6-133a2a903138" />
+
 On touch devices the game switches to a touch layout (landscape; in portrait
 it asks you to turn the device, and pauses a running match). A tap menu picks
 both teams, 3v3 / 6v6, fast human and hard CPU, and starts an exhibition or a
